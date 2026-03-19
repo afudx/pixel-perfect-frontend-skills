@@ -61,12 +61,17 @@ export function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 ```
 
 ### 6. Directory Structure
+Use atomic design structure — always:
 ```
-src/components/ui/
-src/components/sections/
-src/components/layout/
-src/lib/
-src/assets/
+src/
+  components/
+    atoms/        # Smallest UI units: Button, Badge, Input, Avatar, Icon, Divider
+    molecules/    # Composed from atoms: Card, FormGroup, NavItem, StatBlock
+    organisms/    # Composed from molecules: Header, Footer, Sidebar, HeroSection
+    templates/    # Page-level layout shells with slot areas
+  pages/          # Full page compositions using templates + organisms
+  lib/            # Utils, helpers, constants
+  assets/         # Images, fonts, SVGs
 ```
 
 ### 7. Verify

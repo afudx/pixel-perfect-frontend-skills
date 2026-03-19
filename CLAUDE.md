@@ -64,14 +64,14 @@ START
 │       ├── Write Tailwind config with ALL design tokens
 │       ├── Write globals.css with CSS reset
 │       ├── Write lib/utils.ts with cn() helper
-│       ├── Create component directory structure
+│       ├── Create atomic design directory structure (atoms/molecules/organisms/templates/pages)
 │       └── Verify dev server loads cleanly
 │
 ├── PHASE 3: BUILD
-│   ├── Build components inside-out:
-│   │   1. Atomic UI components (buttons, badges, inputs, avatars)
-│   │   2. Composite components (cards, form groups, nav items)
-│   │   3. Layout components (header, footer, sidebar)
+│   ├── Build components using atomic design (inside-out):
+│   │   1. atoms/        — Button, Badge, Input, Avatar, Icon, Divider
+│   │   2. molecules/    — Card, FormGroup, NavItem, StatBlock
+│   │   3. organisms/    — Header, Footer, Sidebar, HeroSection
 │   │   4. Page sections top-to-bottom matching design order
 │   │   5. Full page composition
 │   │
@@ -171,10 +171,11 @@ When building each component:
 - Copy all text from the design word for word
 - For icons: prefer component libraries (lucide-react, @heroicons/react). For custom icons, create inline SVG components with `currentColor`
 
-### Build Order
-1. Atomic UI components (buttons, badges, inputs, avatars, dividers)
-2. Composite components (cards, form groups, nav items, stat blocks)
-3. Layout components (header, footer, sidebar, page wrapper)
+### Build Order (Atomic Design — always)
+1. `atoms/` — Button, Badge, Input, Avatar, Icon, Divider (smallest, no dependencies)
+2. `molecules/` — Card, FormGroup, NavItem, StatBlock (composed from atoms)
+3. `organisms/` — Header, Footer, Sidebar, HeroSection (composed from molecules)
+4. `templates/` — Page-level layout shells with slot areas
 4. Page sections top-to-bottom matching design order
 5. Full page composition
 
