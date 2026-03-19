@@ -79,9 +79,18 @@ node ${CLAUDE_SKILL_DIR}/../_shared/scripts/screenshot.mjs $1 --output .claude/t
 ```
 
 ### Step 4 — Re-diff
+
+If the design is a **phone mockup** (detected in `/preflight`), always add `--exclude-phone-ui`:
+```bash
+node ${CLAUDE_SKILL_DIR}/../_shared/scripts/compare.mjs $0 .claude/tmp/fix-loop-screenshot.png --normalize --exclude-phone-ui
+```
+
+For bare app screenshots (no device frame):
 ```bash
 node ${CLAUDE_SKILL_DIR}/../_shared/scripts/compare.mjs $0 .claude/tmp/fix-loop-screenshot.png --normalize
 ```
+
+> The same masking flags used in the final `/pixel-diff` **must** be used in every fix-loop iteration. Mixing masked and unmasked runs makes mismatch % incomparable across iterations.
 
 ### Step 5 — Evaluate
 - < 2%: DONE
