@@ -11,11 +11,25 @@
  *   node compare.mjs --help
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
-import { basename, join, dirname } from "node:path";
-import sharp from "sharp";
-import { PNG } from "pngjs";
-import pixelmatch from "pixelmatch";
+import { createRequire } from "node:module";
+import { readFileSync, writeFileSync, statSync } from "node:fs";
+import { basename, join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const require = createRequire(import.meta.url);
+
+function resolveShared(pkg) {
+  try {
+    return require(resolve(__dirname, `../node_modules/${pkg}`));
+  } catch {
+    return require(pkg);
+  }
+}
+
+const sharp = resolveShared("sharp");
+const { PNG } = resolveShared("pngjs");
+const pixelmatch = resolveShared("pixelmatch");
 
 const args = process.argv.slice(2);
 
@@ -50,16 +64,37 @@ if (!designPath || !screenshotPath) {
   process.exit(1);
 }
 
+async function checkBlank(filePath, label) {
+  try {
+    const fileSize = statSync(filePath).size;
+    if (fileSize < 2000) {
+      console.error(`[ERROR] ${label} appears blank — file too small (${fileSize} bytes).`);
+      console.error(`        Check that the page rendered before screenshotting.`);
+      process.exit(1);
+    }
+    const stats = await sharp(filePath).stats();
+    const avgStdev = stats.channels.reduce((s, ch) => s + ch.stdev, 0) / stats.channels.length;
+    if (avgStdev < 3) {
+      console.error(`[ERROR] ${label} appears blank — no pixel variation (stdev=${avgStdev.toFixed(1)}).`);
+      console.error(`        The screenshot tool may have captured a blank page. Re-run with --wait 5000.`);
+      process.exit(1);
+    }
+  } catch (err) {
+    // sharp failed — proceed anyway, pixelmatch will surface any real issue
+  }
+}
+
 async function loadImage(filePath) {
-  const buffer = await sharp(filePath)
-    .toColourspace("srgb")
-    .png()
-    .toBuffer();
+  const buffer = await sharp(filePath).toColourspace("srgb").png().toBuffer();
   const png = PNG.sync.read(buffer);
   return { width: png.width, height: png.height, data: png.data };
 }
 
 async function main() {
+  // Guard: reject blank inputs before running the expensive comparison
+  await checkBlank(designPath, "Design image");
+  await checkBlank(screenshotPath, "Screenshot");
+
   let design = await loadImage(designPath);
   let screenshot = await loadImage(screenshotPath);
 
@@ -77,17 +112,10 @@ async function main() {
 
     const targetWidth = Math.min(design.width, screenshot.width);
     const targetHeight = Math.min(design.height, screenshot.height);
-
-    console.log(
-      `Normalizing: resizing both images to ${targetWidth}x${targetHeight}`
-    );
+    console.log(`Normalizing: resizing both images to ${targetWidth}x${targetHeight}`);
 
     const resizeAndLoad = async (path, w, h) => {
-      const buf = await sharp(path)
-        .toColourspace("srgb")
-        .resize(w, h, { fit: "fill" })
-        .png()
-        .toBuffer();
+      const buf = await sharp(path).toColourspace("srgb").resize(w, h, { fit: "fill" }).png().toBuffer();
       const png = PNG.sync.read(buf);
       return { width: png.width, height: png.height, data: png.data };
     };
@@ -99,30 +127,17 @@ async function main() {
   const { width, height } = design;
   const diff = new PNG({ width, height });
 
-  const mismatchedPixels = pixelmatch(
-    design.data,
-    screenshot.data,
-    diff.data,
-    width,
-    height,
-    { threshold: 0.1 }
-  );
+  const mismatchedPixels = pixelmatch(design.data, screenshot.data, diff.data, width, height, { threshold: 0.1 });
 
   const totalPixels = width * height;
   const mismatchPercent = ((mismatchedPixels / totalPixels) * 100).toFixed(2);
 
-  const diffPath = join(
-    dirname(screenshotPath),
-    `${basename(screenshotPath, ".png")}-diff.png`
-  );
+  const diffPath = join(dirname(screenshotPath), `${basename(screenshotPath, ".png")}-diff.png`);
   writeFileSync(diffPath, PNG.sync.write(diff));
 
   const status =
-    parseFloat(mismatchPercent) < 2
-      ? "PASS"
-      : parseFloat(mismatchPercent) < 5
-        ? "REVIEW"
-        : "FAIL";
+    parseFloat(mismatchPercent) < 2 ? "PASS" :
+    parseFloat(mismatchPercent) < 5 ? "REVIEW" : "FAIL";
 
   console.log(`
 Comparison Results:
