@@ -7,7 +7,22 @@
  *   node interactive-test.mjs <url> [selectors...]
  */
 
-import { chromium } from "playwright";
+import { createRequire } from "node:module";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const require = createRequire(import.meta.url);
+
+function resolveShared(pkg) {
+  try {
+    return require(resolve(__dirname, `../node_modules/${pkg}`));
+  } catch {
+    return require(pkg);
+  }
+}
+
+const { chromium } = resolveShared("playwright");
 
 const args = process.argv.slice(2);
 
@@ -68,29 +83,18 @@ async function main() {
   for (const el of elements) {
     console.log(`${el.tag} "${el.text}" (${el.selector}):`);
 
-    // Check cursor
     const cursorOk = el.cursor === "pointer" || el.tag === "INPUT" || el.tag === "SELECT" || el.tag === "TEXTAREA";
     console.log(`  [${cursorOk ? "PASS" : "WARN"}] Cursor: ${el.cursor}`);
 
-    // Check transition
-    const hasTransition = el.hasHoverStyles;
-    console.log(`  [${hasTransition ? "PASS" : "INFO"}] Transition: ${el.transition?.slice(0, 60) || "none"}`);
+    console.log(`  [${el.hasHoverStyles ? "PASS" : "INFO"}] Transition: ${el.transition?.slice(0, 60) || "none"}`);
 
-    // Test hover
     try {
       await page.hover(`${el.tag.toLowerCase()}:nth-of-type(${el.index + 1})`, { timeout: 2000 }).catch(() => null);
-      const hoverStyles = await page.evaluate((sel) => {
-        const target = document.querySelector(sel);
-        if (!target) return null;
-        const s = getComputedStyle(target);
-        return { bg: s.backgroundColor, color: s.color, transform: s.transform, boxShadow: s.boxShadow };
-      }, el.selector).catch(() => null);
       console.log(`  [PASS] Hover state accessible`);
     } catch {
       console.log(`  [SKIP] Hover test skipped`);
     }
 
-    // Test focus
     try {
       await page.keyboard.press("Tab");
       const focusedTag = await page.evaluate(() => document.activeElement?.tagName);
@@ -102,10 +106,8 @@ async function main() {
     console.log();
   }
 
-  // Check focus-visible styles exist
   const hasFocusVisible = await page.evaluate(() => {
-    const sheets = document.styleSheets;
-    for (const sheet of sheets) {
+    for (const sheet of document.styleSheets) {
       try {
         for (const rule of sheet.cssRules) {
           if (rule.selectorText?.includes("focus-visible")) return true;

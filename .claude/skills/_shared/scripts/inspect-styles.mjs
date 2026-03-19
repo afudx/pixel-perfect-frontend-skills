@@ -9,7 +9,22 @@
  * Default: inspects h1-h6, p, button, a, img, section, header, footer, main, nav
  */
 
-import { chromium } from "playwright";
+import { createRequire } from "node:module";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const require = createRequire(import.meta.url);
+
+function resolveShared(pkg) {
+  try {
+    return require(resolve(__dirname, `../node_modules/${pkg}`));
+  } catch {
+    return require(pkg);
+  }
+}
+
+const { chromium } = resolveShared("playwright");
 
 const args = process.argv.slice(2);
 
@@ -51,12 +66,7 @@ async function main() {
           const s = getComputedStyle(el);
           return {
             text: el.textContent?.trim().slice(0, 50) || "",
-            rect: {
-              x: Math.round(r.x),
-              y: Math.round(r.y),
-              w: Math.round(r.width),
-              h: Math.round(r.height),
-            },
+            rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
             typography: {
               fontFamily: s.fontFamily,
               fontSize: s.fontSize,
@@ -74,12 +84,10 @@ async function main() {
               gap: s.gap !== "normal" ? s.gap : undefined,
             },
             visual: {
-              backgroundColor:
-                s.backgroundColor !== "rgba(0, 0, 0, 0)" ? s.backgroundColor : undefined,
+              backgroundColor: s.backgroundColor !== "rgba(0, 0, 0, 0)" ? s.backgroundColor : undefined,
               borderRadius: s.borderRadius !== "0px" ? s.borderRadius : undefined,
               borderWidth: s.borderWidth !== "0px" ? s.borderWidth : undefined,
-              borderColor:
-                s.borderWidth !== "0px" ? s.borderColor : undefined,
+              borderColor: s.borderWidth !== "0px" ? s.borderColor : undefined,
               boxShadow: s.boxShadow !== "none" ? s.boxShadow : undefined,
             },
             layout: {

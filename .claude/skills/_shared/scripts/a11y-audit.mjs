@@ -7,9 +7,23 @@
  *   node a11y-audit.mjs <url>
  */
 
-import { chromium } from "playwright";
+import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const require = createRequire(import.meta.url);
+
+function resolveShared(pkg) {
+  try {
+    return require(resolve(__dirname, `../node_modules/${pkg}`));
+  } catch {
+    return require(pkg);
+  }
+}
+
+const { chromium } = resolveShared("playwright");
 
 const args = process.argv.slice(2);
 
@@ -33,9 +47,11 @@ async function main() {
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
   await page.waitForTimeout(3000);
 
-  // Find axe-core
+  // Resolve axe-core from _shared/node_modules first, then project root as fallback.
   let axePath;
   const candidates = [
+    resolve(__dirname, "../node_modules/axe-core/axe.min.js"),
+    resolve(__dirname, "../node_modules/axe-core/axe.js"),
     resolve("node_modules/axe-core/axe.min.js"),
     resolve("node_modules/axe-core/axe.js"),
   ];
@@ -48,18 +64,16 @@ async function main() {
   }
 
   if (!axePath) {
-    console.error("axe-core not found. Run: npm install --save-dev axe-core");
+    console.error("axe-core not found. Run /preflight to install dependencies.");
     process.exit(1);
   }
 
-  // Inject axe-core and run
   const axeSource = readFileSync(axePath, "utf8");
   const results = await page.evaluate((src) => {
     eval(src);
     return window.axe.run();
   }, axeSource);
 
-  // Report violations
   console.log("=== AXE-CORE AUDIT ===\n");
 
   if (results.violations.length === 0) {
@@ -71,91 +85,52 @@ async function main() {
       console.log(`    ${v.helpUrl}`);
       for (const node of v.nodes.slice(0, 3)) {
         console.log(`    → ${node.target.join(", ")}`);
-        if (node.failureSummary) {
-          console.log(`      ${node.failureSummary.split("\n")[0]}`);
-        }
+        if (node.failureSummary) console.log(`      ${node.failureSummary.split("\n")[0]}`);
       }
-      if (v.nodes.length > 3) {
-        console.log(`    ... and ${v.nodes.length - 3} more`);
-      }
+      if (v.nodes.length > 3) console.log(`    ... and ${v.nodes.length - 3} more`);
       console.log();
     }
   }
 
-  // Manual checks
   console.log("=== MANUAL CHECKS ===\n");
 
   const manualResults = await page.evaluate(() => {
     const checks = {};
 
-    // Alt text
     const imgs = document.querySelectorAll("img");
     const missingAlt = Array.from(imgs).filter(
       (img) => !img.alt && !img.getAttribute("role")?.includes("presentation")
     );
-    checks.altText = {
-      total: imgs.length,
-      missing: missingAlt.length,
-      pass: missingAlt.length === 0,
-    };
+    checks.altText = { total: imgs.length, missing: missingAlt.length, pass: missingAlt.length === 0 };
 
-    // Heading hierarchy
-    const headings = Array.from(
-      document.querySelectorAll("h1, h2, h3, h4, h5, h6")
-    ).map((h) => parseInt(h.tagName[1]));
+    const headings = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6")).map((h) => parseInt(h.tagName[1]));
     let skipped = false;
     for (let i = 1; i < headings.length; i++) {
-      if (headings[i] > headings[i - 1] + 1) {
-        skipped = true;
-        break;
-      }
+      if (headings[i] > headings[i - 1] + 1) { skipped = true; break; }
     }
-    checks.headingHierarchy = {
-      levels: headings,
-      skipped,
-      pass: !skipped,
-    };
+    checks.headingHierarchy = { levels: headings, skipped, pass: !skipped };
 
-    // Form labels
-    const inputs = document.querySelectorAll(
-      "input:not([type=hidden]):not([type=submit]):not([type=button]), select, textarea"
-    );
+    const inputs = document.querySelectorAll("input:not([type=hidden]):not([type=submit]):not([type=button]), select, textarea");
     const unlabeled = Array.from(inputs).filter((input) => {
       const id = input.id;
-      const hasLabel = id && document.querySelector(`label[for="${id}"]`);
-      const hasAriaLabel = input.getAttribute("aria-label");
-      const hasAriaLabelledBy = input.getAttribute("aria-labelledby");
-      const wrappedInLabel = input.closest("label");
-      return !hasLabel && !hasAriaLabel && !hasAriaLabelledBy && !wrappedInLabel;
+      return !id || !document.querySelector(`label[for="${id}"]`) &&
+        !input.getAttribute("aria-label") &&
+        !input.getAttribute("aria-labelledby") &&
+        !input.closest("label");
     });
-    checks.formLabels = {
-      total: inputs.length,
-      unlabeled: unlabeled.length,
-      pass: unlabeled.length === 0,
-    };
+    checks.formLabels = { total: inputs.length, unlabeled: unlabeled.length, pass: unlabeled.length === 0 };
 
-    // Keyboard-focusable interactive elements
-    const interactives = document.querySelectorAll(
-      "button, a[href], input, select, textarea, [tabindex]"
-    );
-    checks.keyboardNav = {
-      total: interactives.length,
-      pass: interactives.length > 0,
-    };
+    const interactives = document.querySelectorAll("button, a[href], input, select, textarea, [tabindex]");
+    checks.keyboardNav = { total: interactives.length, pass: interactives.length > 0 };
 
     return checks;
   });
 
   for (const [check, result] of Object.entries(manualResults)) {
-    const status = result.pass ? "PASS" : "FAIL";
-    const details = JSON.stringify(result);
-    console.log(`[${status}] ${check}: ${details}`);
+    console.log(`[${result.pass ? "PASS" : "FAIL"}] ${check}: ${JSON.stringify(result)}`);
   }
 
-  console.log(
-    `\nTotal violations: ${results.violations.length}`
-  );
-
+  console.log(`\nTotal violations: ${results.violations.length}`);
   await browser.close();
   process.exit(results.violations.length > 0 ? 1 : 0);
 }
