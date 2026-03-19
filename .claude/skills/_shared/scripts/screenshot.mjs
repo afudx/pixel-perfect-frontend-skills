@@ -20,9 +20,26 @@
  *   --help                Show this help
  */
 
-import { chromium } from "playwright";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { createRequire } from "node:module";
+import { mkdirSync, statSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Resolve playwright and sharp from _shared/node_modules, not the project root.
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const require = createRequire(import.meta.url);
+
+function resolveShared(pkg) {
+  try {
+    return require(resolve(__dirname, `../node_modules/${pkg}`));
+  } catch {
+    // fallback to project-root node_modules
+    return require(pkg);
+  }
+}
+
+const { chromium } = resolveShared("playwright");
+const sharp = resolveShared("sharp");
 
 const args = process.argv.slice(2);
 
@@ -67,6 +84,21 @@ const extractMeasurements = args.includes("--extract-measurements");
 const selectors = getArg("--selector", "");
 const waitFor = getArg("--wait-for", "domcontentloaded");
 
+async function isBlankScreenshot(filePath) {
+  try {
+    const fileSize = statSync(filePath).size;
+    if (fileSize < 2000) return { blank: true, reason: `file too small (${fileSize} bytes)` };
+
+    const stats = await sharp(filePath).stats();
+    const avgStdev = stats.channels.reduce((s, ch) => s + ch.stdev, 0) / stats.channels.length;
+    if (avgStdev < 3) return { blank: true, reason: `no pixel variation (stdev=${avgStdev.toFixed(1)})` };
+
+    return { blank: false };
+  } catch (err) {
+    return { blank: false }; // if sharp fails, assume ok
+  }
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({
@@ -76,12 +108,23 @@ async function main() {
   await page.goto(url, { waitUntil: waitFor, timeout: 60000 });
   await page.waitForTimeout(waitMs);
 
-  // Take screenshot
   mkdirSync(dirname(output), { recursive: true });
   await page.screenshot({ path: output, fullPage });
+
+  // Validate screenshot is not blank; retry once with extra wait if it is.
+  let blankCheck = await isBlankScreenshot(output);
+  if (blankCheck.blank) {
+    console.error(`[WARN] Screenshot appears blank (${blankCheck.reason}). Retrying with +3s wait...`);
+    await page.waitForTimeout(3000);
+    await page.screenshot({ path: output, fullPage });
+    blankCheck = await isBlankScreenshot(output);
+    if (blankCheck.blank) {
+      console.error(`[WARN] Screenshot still blank after retry (${blankCheck.reason}). Check if the server is running and the page renders content.`);
+    }
+  }
+
   console.log(`Screenshot: ${output}`);
 
-  // Get page dimensions
   const dims = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     scrollHeight: document.documentElement.scrollHeight,
@@ -90,13 +133,9 @@ async function main() {
   }));
   console.log(`Page: ${dims.scrollWidth}x${dims.scrollHeight} (viewport: ${dims.clientWidth}x${dims.clientHeight})`);
 
-  // Extract text
   if (extractText) {
     const texts = await page.evaluate(() => {
-      const walker = document.createTreeWalker(
-        document.body,
-        NodeFilter.SHOW_TEXT
-      );
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       const result = [];
       let node;
       while ((node = walker.nextNode())) {
@@ -109,7 +148,6 @@ async function main() {
     texts.forEach((t) => console.log(t));
   }
 
-  // Extract styles
   if (extractStyles) {
     const styles = await page.evaluate(() => {
       const body = getComputedStyle(document.body);
@@ -119,8 +157,7 @@ async function main() {
       const fontFamilies = new Set();
       document.querySelectorAll("*").forEach((el) => {
         const s = getComputedStyle(el);
-        if (s.backgroundColor !== "rgba(0, 0, 0, 0)")
-          bgColors.add(s.backgroundColor);
+        if (s.backgroundColor !== "rgba(0, 0, 0, 0)") bgColors.add(s.backgroundColor);
         textColors.add(s.color);
         fontSizes.add(s.fontSize);
         fontFamilies.add(s.fontFamily);
@@ -131,9 +168,7 @@ async function main() {
         bodyColor: body.color,
         bgColors: [...bgColors],
         textColors: [...textColors],
-        fontSizes: [...fontSizes].sort(
-          (a, b) => parseInt(a) - parseInt(b)
-        ),
+        fontSizes: [...fontSizes].sort((a, b) => parseInt(a) - parseInt(b)),
         fontFamilies: [...fontFamilies],
       };
     });
@@ -141,7 +176,6 @@ async function main() {
     console.log(JSON.stringify(styles, null, 2));
   }
 
-  // Extract measurements
   if (extractMeasurements) {
     const targetSelectors = selectors
       ? selectors.split(",").map((s) => s.trim())
@@ -157,12 +191,7 @@ async function main() {
           const s = getComputedStyle(el);
           return {
             text: el.textContent?.trim().slice(0, 60) || "",
-            rect: {
-              x: Math.round(r.x),
-              y: Math.round(r.y),
-              w: Math.round(r.width),
-              h: Math.round(r.height),
-            },
+            rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
             padding: `${s.paddingTop} ${s.paddingRight} ${s.paddingBottom} ${s.paddingLeft}`,
             margin: `${s.marginTop} ${s.marginRight} ${s.marginBottom} ${s.marginLeft}`,
             fontSize: s.fontSize,
@@ -182,7 +211,6 @@ async function main() {
     console.log(JSON.stringify(measurements, null, 2));
   }
 
-  // Extract images
   if (extractText || extractStyles) {
     const images = await page.evaluate(() =>
       Array.from(document.querySelectorAll("img")).map((img) => ({
@@ -196,7 +224,6 @@ async function main() {
     images.forEach((i) => console.log(JSON.stringify(i)));
   }
 
-  // Extract links
   if (extractText) {
     const links = await page.evaluate(() =>
       Array.from(document.querySelectorAll("a")).map((a) => ({
