@@ -35,15 +35,38 @@ Plus the icon library and font package from design analysis (e.g., `lucide-react
 
 Note: sharp, pixelmatch, pngjs, axe-core, and playwright are already installed by preflight.
 
-### 3. Configure Tailwind
-Write `tailwind.config.ts` (or Tailwind v4 `@theme` in CSS) with ALL tokens from analysis:
-- `theme.extend.colors` — every extracted color with semantic names
-- `theme.extend.fontFamily` — identified fonts
-- `theme.extend.fontSize` — every size with line-heights
-- `theme.extend.spacing` — custom values not in Tailwind defaults
-- `theme.extend.borderRadius` — per-element values
-- `theme.extend.boxShadow` — every shadow with all layers
-- `theme.extend.zIndex` — base:0, dropdown:10, sticky:20, fixed:30, modal-backdrop:40, modal:50, popover:60, tooltip:70
+### 3. Detect Tailwind Version and Configure
+
+First, check the installed Tailwind version:
+```bash
+node -e "console.log(require('./node_modules/tailwindcss/package.json').version)"
+```
+
+**Tailwind v4 (version >= 4.0.0):**
+- No `tailwind.config.js/ts` — configuration lives entirely in CSS via `@theme {}`
+- In `src/index.css` (or `globals.css`):
+```css
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #hex;
+  --color-secondary: #hex;
+  --font-sans: "Inter", sans-serif;
+  /* ... all design tokens as CSS custom properties */
+}
+```
+- Use the `@tailwindcss/vite` plugin (Vite) or `@tailwindcss/postcss` (Next.js/PostCSS)
+- Do NOT create `tailwind.config.js` — it is ignored in v4
+
+**Tailwind v3 (version < 4.0.0):**
+- Write `tailwind.config.ts` with ALL tokens from analysis:
+  - `theme.extend.colors` — every extracted color with semantic names
+  - `theme.extend.fontFamily` — identified fonts
+  - `theme.extend.fontSize` — every size with line-heights
+  - `theme.extend.spacing` — custom values not in Tailwind defaults
+  - `theme.extend.borderRadius` — per-element values
+  - `theme.extend.boxShadow` — every shadow with all layers
+  - `theme.extend.zIndex` — base:0, dropdown:10, sticky:20, fixed:30, modal-backdrop:40, modal:50, popover:60, tooltip:70
 
 Do NOT use default Tailwind colors without verifying hex match.
 
