@@ -19,7 +19,7 @@ All pixel-perfect work is driven through skills. Each skill encapsulates tools, 
 | **extract-colors** | `/extract-colors` | `<image> <x,y> [x,y]... [--region x,y,w,h]` | Sample exact hex at coordinates or dominant color of a region |
 | **sample-palette** | `/sample-palette` | `<image> [--top N]` | Extract dominant color palette from image |
 | **setup-project** | `/setup-project` | `[next\|vite]` | Scaffold project with Tailwind, utils, directory structure, verification scripts |
-| **pixel-diff** | `/pixel-diff` | `<design> <screenshot-or-url> [--normalize] [--exclude-regions x,y,w,h] [--auto-crop-chrome]` | Pixel-level comparison, outputs diff image + mismatch % + region breakdown |
+| **pixel-diff** | `/pixel-diff` | `<design> <screenshot-or-url> [--normalize] [--exclude-phone-ui] [--has-notch] [--exclude-regions x,y,w,h]` | Pixel-level comparison, outputs diff image + mismatch % + region breakdown |
 | **fix-loop** | `/fix-loop` | `<design-image> <dev-server-url>` | Iterative fix cycle: edit → screenshot → diff → repeat (max 3 iterations) |
 | **verify-styles** | `/verify-styles` | `<url> [selectors...]` | Inspect computed CSS properties against design tokens |
 | **verify-interactive** | `/verify-interactive` | `<url> [selectors...]` | Test hover, focus-visible, active, disabled states |
@@ -44,7 +44,9 @@ START
 │       ├── Takes test screenshot to confirm browser works
 │       └── DEVICE MOCKUP DETECTION (critical — determines viewport + diff strategy):
 │           ├── Bare screenshot → viewport = design dimensions, no masking needed
-│           ├── Phone mockup  → viewport = content area (design minus chrome), use --auto-crop-chrome
+│           ├── Phone mockup  → viewport = content area (design minus chrome)
+│           │                   use --exclude-phone-ui on ALL pixel-diff + fix-loop runs
+│           │                   (masks bezel, status bar, home indicator — see pixel-diff SKILL.md)
 │           └── 2× mockup     → viewport = design-width ÷ 2, extract colors from content area only
 │
 ├── PHASE 1: ANALYZE
