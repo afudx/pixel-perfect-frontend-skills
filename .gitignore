@@ -1,6 +1,30 @@
+# Dependencies
 node_modules/
+.claude/skills/_shared/node_modules/
+.claude/skills/_shared/package.json
+.claude/skills/_shared/package-lock.json
+
+# Build output
 dist/
 
-# Claude Code local settings and temp files
+# Application source (not part of this skills repo)
+src/
+public/
+index.html
+package.json
+package-lock.json
+tsconfig.json
+tsconfig.app.json
+tsconfig.node.json
+vite.config.ts
+README.md
+reference/
+
+# macOS
+.DS_Store
+
+# Claude Code local state
 .claude/settings.local.json
 .claude/tmp/
+.claude/plans/
+.claude/projects/
