@@ -5,9 +5,10 @@
  *
  * Mode A (strict, default): fails if image dimensions differ.
  * Mode B (--normalize): resizes both images to match before comparing.
+ * Mode C (--structural): grayscale + threshold comparison — ignores color, reveals layout deviations.
  *
  * Usage:
- *   node compare.mjs <design.png> <screenshot.png> [--normalize]
+ *   node compare.mjs <design.png> <screenshot.png> [--normalize] [--structural]
  *   node compare.mjs --help
  */
 
@@ -29,7 +30,8 @@ function resolveShared(pkg) {
 
 const sharp = resolveShared("sharp");
 const { PNG } = resolveShared("pngjs");
-const pixelmatch = resolveShared("pixelmatch");
+const _pixelmatchMod = resolveShared("pixelmatch");
+const pixelmatch = typeof _pixelmatchMod === "function" ? _pixelmatchMod : _pixelmatchMod.default;
 
 const args = process.argv.slice(2);
 
@@ -38,12 +40,15 @@ if (args.includes("--help") || args.length < 2) {
 Pixel-Perfect Comparison Script
 
 Usage:
-  node compare.mjs <design.png> <screenshot.png> [--normalize]
+  node compare.mjs <design.png> <screenshot.png> [--normalize] [--structural]
 
 Modes:
   Strict (default)    Fails if image dimensions differ. Use for final verification.
   --normalize         Resizes both images to the smaller dimension before comparing.
                       Use only for rough initial checks during development.
+  --structural        Converts both images to grayscale + threshold before comparing.
+                      Ignores all color differences — reveals layout structure deviations only.
+                      Use when design and implementation use intentionally different color themes.
 
 Output:
   - Prints mismatch percentage to console
@@ -57,9 +62,14 @@ Exit codes:
 }
 
 const normalize = args.includes("--normalize");
-const [designPath, screenshotPath] = args.filter((a) => !a.startsWith("--"));
+const structural = args.includes("--structural");
 
-if (!designPath || !screenshotPath) {
+// Resolve input paths relative to the calling shell's CWD, not the script location
+const [rawDesignPath, rawScreenshotPath] = args.filter((a) => !a.startsWith("--"));
+const designPath = resolve(process.cwd(), rawDesignPath);
+const screenshotPath = resolve(process.cwd(), rawScreenshotPath);
+
+if (!rawDesignPath || !rawScreenshotPath) {
   console.error("Error: Both design and screenshot paths are required.");
   process.exit(1);
 }
@@ -79,19 +89,25 @@ async function checkBlank(filePath, label) {
       console.error(`        The screenshot tool may have captured a blank page. Re-run with --wait 5000.`);
       process.exit(1);
     }
-  } catch (err) {
+  } catch {
     // sharp failed — proceed anyway, pixelmatch will surface any real issue
   }
 }
 
-async function loadImage(filePath) {
-  const buffer = await sharp(filePath).toColourspace("srgb").png().toBuffer();
+async function loadImage(filePath, w, h) {
+  let pipeline = sharp(filePath).toColourspace("srgb");
+  if (w && h) pipeline = pipeline.resize(w, h, { fit: "fill" });
+  if (structural) {
+    // Convert to grayscale then apply a 50% threshold to strip color entirely,
+    // reducing the comparison to element boundaries and layout structure.
+    pipeline = pipeline.grayscale().threshold(128).toColourspace("srgb");
+  }
+  const buffer = await pipeline.png().toBuffer();
   const png = PNG.sync.read(buffer);
   return { width: png.width, height: png.height, data: png.data };
 }
 
 async function main() {
-  // Guard: reject blank inputs before running the expensive comparison
   await checkBlank(designPath, "Design image");
   await checkBlank(screenshotPath, "Screenshot");
 
@@ -114,14 +130,8 @@ async function main() {
     const targetHeight = Math.min(design.height, screenshot.height);
     console.log(`Normalizing: resizing both images to ${targetWidth}x${targetHeight}`);
 
-    const resizeAndLoad = async (path, w, h) => {
-      const buf = await sharp(path).toColourspace("srgb").resize(w, h, { fit: "fill" }).png().toBuffer();
-      const png = PNG.sync.read(buf);
-      return { width: png.width, height: png.height, data: png.data };
-    };
-
-    design = await resizeAndLoad(designPath, targetWidth, targetHeight);
-    screenshot = await resizeAndLoad(screenshotPath, targetWidth, targetHeight);
+    design = await loadImage(designPath, targetWidth, targetHeight);
+    screenshot = await loadImage(screenshotPath, targetWidth, targetHeight);
   }
 
   const { width, height } = design;
@@ -132,15 +142,17 @@ async function main() {
   const totalPixels = width * height;
   const mismatchPercent = ((mismatchedPixels / totalPixels) * 100).toFixed(2);
 
-  const diffPath = join(dirname(screenshotPath), `${basename(screenshotPath, ".png")}-diff.png`);
+  const suffix = structural ? "-structural-diff" : "-diff";
+  const diffPath = join(dirname(screenshotPath), `${basename(screenshotPath, ".png")}${suffix}.png`);
   writeFileSync(diffPath, PNG.sync.write(diff));
 
+  const mode = structural ? " [structural mode — color ignored]" : normalize ? " [normalized]" : "";
   const status =
     parseFloat(mismatchPercent) < 2 ? "PASS" :
     parseFloat(mismatchPercent) < 5 ? "REVIEW" : "FAIL";
 
   console.log(`
-Comparison Results:
+Comparison Results${mode}:
   Design:       ${designPath}
   Screenshot:   ${screenshotPath}
   Dimensions:   ${width} x ${height}
