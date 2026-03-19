@@ -45,8 +45,14 @@ echo ""
 echo "=== Detecting project framework conflicts ==="
 
 if [ -f "vite.config.js" ] || [ -f "vite.config.ts" ]; then
-  echo "[WARN] Vite project detected — index.html belongs to Vite."
-  echo "       Write clones to a standalone file (e.g. claude-2x.html), not index.html."
+  # Distinguish React SPA (has src/App.tsx or src/main.tsx) from plain static Vite
+  if [ -f "src/App.tsx" ] || [ -f "src/App.jsx" ] || [ -f "src/main.tsx" ] || [ -f "src/main.jsx" ]; then
+    echo "[INFO] React SPA (Vite) detected — verify implementation via dev server URL, not index.html."
+    echo "       Use screenshot.mjs against the running dev server for all comparisons."
+  else
+    echo "[WARN] Vite project detected — index.html belongs to Vite."
+    echo "       Write clones to a standalone file (e.g. claude-2x.html), not index.html."
+  fi
 fi
 
 if [ -f "next.config.js" ] || [ -f "next.config.ts" ] || [ -f "next.config.mjs" ]; then
