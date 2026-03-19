@@ -19,14 +19,31 @@ bash ${CLAUDE_SKILL_DIR}/../preflight/scripts/install-deps.sh
 
 ## Steps
 
-### 1. Initialize Framework
+### 1. Determine Viewport from Design
+
+Before scaffolding, set the correct viewport based on what `/preflight` detected:
+
+- **Bare screenshot**: use the exact design image dimensions as the viewport
+- **Phone mockup (device frame detected)**: use the content area dimensions (design minus chrome inset)
+- **Scale factor**: if the design is 2×, the viewport is design-width ÷ 2
+
+```
+Design 584×1168, phone mockup, 2× → viewport 292×584
+Design 390×844, bare screenshot → viewport 390×844
+Design 1440×900, desktop → viewport 1440×900
+```
+
+Set the viewport in the root CSS (e.g., `#root { width: <viewport-width>px; ... }`).
+Use the viewport dimensions when running all screenshot commands.
+
+### 2. Initialize Framework
 - **Next.js**: `npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --no-import-alias`
 - **Vite + React**: `npx --yes create-vite@latest temp-scaffold --template react-ts` then copy files and clean up, then add Tailwind:
   ```bash
   npm install tailwindcss @tailwindcss/vite
   ```
 
-### 2. Install UI Dependencies
+### 3. Install UI Dependencies
 ```bash
 npm install clsx tailwind-merge
 npm install -D prettier-plugin-tailwindcss
@@ -35,7 +52,7 @@ Plus the icon library and font package from design analysis (e.g., `lucide-react
 
 Note: sharp, pixelmatch, pngjs, axe-core, and playwright are already installed by preflight.
 
-### 3. Detect Tailwind Version and Configure
+### 4. Detect Tailwind Version and Configure
 
 First, check the installed Tailwind version:
 ```bash
@@ -70,12 +87,12 @@ node -e "console.log(require('./node_modules/tailwindcss/package.json').version)
 
 Do NOT use default Tailwind colors without verifying hex match.
 
-### 4. Global Styles
+### 5. Global Styles
 Create `globals.css`:
 - Tailwind directives
 - `@layer base` reset: box-sizing border-box, zero margins/padding, antialiased rendering, images display block max-width 100%, removed list/link/button defaults, scrollbar-gutter stable
 
-### 5. Utility Helper
+### 6. Utility Helper
 Create `lib/utils.ts`:
 ```typescript
 import { type ClassValue, clsx } from "clsx";
@@ -83,7 +100,7 @@ import { twMerge } from "tailwind-merge";
 export function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
 ```
 
-### 6. Directory Structure
+### 7. Directory Structure
 Use atomic design structure — always:
 ```
 src/
@@ -97,9 +114,12 @@ src/
   assets/         # Images, fonts, SVGs
 ```
 
-### 7. Verify
-Start dev server, confirm it loads:
+### 8. Verify
+Start dev server, confirm it loads using the correct viewport dimensions:
 ```bash
-node ${CLAUDE_SKILL_DIR}/../_shared/scripts/screenshot.mjs <dev-server-url> --output .claude/tmp/setup-verify.png --wait 3000
+node ${CLAUDE_SKILL_DIR}/../_shared/scripts/screenshot.mjs <dev-server-url> \
+  --output .claude/tmp/setup-verify.png \
+  --width <viewport-width> --height <viewport-height> \
+  --wait 3000
 ```
 Check CSS reset is working by inspecting computed styles.

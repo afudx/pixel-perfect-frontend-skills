@@ -16,10 +16,10 @@ All pixel-perfect work is driven through skills. Each skill encapsulates tools, 
 |-------|---------|-----------|---------|
 | **preflight** | `/preflight` | `[design-image-path]` | Install all deps (sharp, pixelmatch, pngjs, axe-core, playwright, chromium), verify tools ready |
 | **analyze-design** | `/analyze-design` | `[design-image-or-url]` | Extract colors, typography, spacing, layout, component inventory, DOM tree |
-| **extract-colors** | `/extract-colors` | `<image> <x,y> [x,y]...` | Sample exact hex at specific pixel coordinates |
+| **extract-colors** | `/extract-colors` | `<image> <x,y> [x,y]... [--region x,y,w,h]` | Sample exact hex at coordinates or dominant color of a region |
 | **sample-palette** | `/sample-palette` | `<image> [--top N]` | Extract dominant color palette from image |
 | **setup-project** | `/setup-project` | `[next\|vite]` | Scaffold project with Tailwind, utils, directory structure, verification scripts |
-| **pixel-diff** | `/pixel-diff` | `<design> <screenshot-or-url> [--normalize]` | Pixel-level comparison, outputs diff image + mismatch % |
+| **pixel-diff** | `/pixel-diff` | `<design> <screenshot-or-url> [--normalize] [--exclude-regions x,y,w,h] [--auto-crop-chrome]` | Pixel-level comparison, outputs diff image + mismatch % + region breakdown |
 | **fix-loop** | `/fix-loop` | `<design-image> <dev-server-url>` | Iterative fix cycle: edit → screenshot → diff → repeat (max 3 iterations) |
 | **verify-styles** | `/verify-styles` | `<url> [selectors...]` | Inspect computed CSS properties against design tokens |
 | **verify-interactive** | `/verify-interactive` | `<url> [selectors...]` | Test hover, focus-visible, active, disabled states |
@@ -41,7 +41,11 @@ START
 │       ├── Installs ALL dependencies (no manual npm installs later)
 │       ├── Verifies Node.js, npm, Playwright, Chromium
 │       ├── Reads design image dimensions
-│       └── Takes test screenshot to confirm browser works
+│       ├── Takes test screenshot to confirm browser works
+│       └── DEVICE MOCKUP DETECTION (critical — determines viewport + diff strategy):
+│           ├── Bare screenshot → viewport = design dimensions, no masking needed
+│           ├── Phone mockup  → viewport = content area (design minus chrome), use --auto-crop-chrome
+│           └── 2× mockup     → viewport = design-width ÷ 2, extract colors from content area only
 │
 ├── PHASE 1: ANALYZE
 │   ├── /analyze-design [design-image-or-url]
@@ -54,8 +58,11 @@ START
 │   ├── /sample-palette design.png
 │   │   └── Get dominant color palette for initial discovery
 │   │
-│   └── /extract-colors design.png x1,y1 x2,y2 ...
-│       └── Sample precise hex values at specific coordinates
+│   ├── /extract-colors design.png x1,y1 x2,y2 ...
+│   │   └── Sample precise hex values at specific coordinates
+│   │
+│   └── /extract-colors design.png --region x,y,w,h
+│       └── Get dominant+mean color of a background region (e.g., header, card)
 │
 ├── PHASE 2: SETUP
 │   └── /setup-project [vite|next]
@@ -225,6 +232,8 @@ Use Vision to study letterforms. Install candidate via npm. Take screenshot and 
 
 ## PITFALLS
 
+- **Device Mockup Trap**: If the reference is a phone mockup, sampling corner colors gives you chrome gray, not app colors. Always sample from the content area. Use `--auto-crop-chrome` on pixel-diff. Set the screenshot viewport to the content area, not the mockup size.
+- **Inflated Mismatch Score**: A mockup's chrome border or real photos in the design vs color placeholders in implementation can inflate mismatch to 30-50%. Classify the mismatch first (device chrome / missing assets / fixable code issues) before running fix-loop.
 - **Close Enough Trap**: Tailwind's `gray-500` might not match the design's gray. Always verify via `/extract-colors`.
 - **Font Rendering Mismatch**: Wrong font weight or missing antialiasing. Verify via `/verify-styles`.
 - **Collapsed Spacing**: Missed padding on one side. Verify via `/verify-styles` on all four sides independently.

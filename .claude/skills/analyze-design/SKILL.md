@@ -18,6 +18,28 @@ node ${CLAUDE_SKILL_DIR}/../_shared/scripts/screenshot.mjs $ARGUMENTS \
 
 This gives you: a full-page screenshot, all text content, all computed styles (colors, fonts, sizes), all element measurements, all images, and all links.
 
+## Pre-Analysis: Device Frame Detection
+
+Before extracting design tokens, determine if the image is a phone mockup or a bare screenshot.
+
+Sample the 4 corners to detect device chrome:
+```bash
+node ${CLAUDE_SKILL_DIR}/../_shared/scripts/extract-color.mjs <design.png> 5,5 <w-5>,5 5,<h-5> <w-5>,<h-5>
+```
+
+If corners are similar dark/gray colors → **phone mockup**. The actual app content is inset.
+
+To find the content boundary, sample the edge centers:
+```bash
+node ${CLAUDE_SKILL_DIR}/../_shared/scripts/extract-color.mjs <design.png> --region 0,0,<w>,30 --region 0,<h-30>,<w>,30
+```
+
+**If phone mockup detected:**
+- Report the content inset (chrome thickness on each edge)
+- Use `--region` mode to sample colors only from the content area, not the chrome
+- Note the actual content dimensions for viewport configuration in `/setup-project`
+- When running `/pixel-diff`, use `--auto-crop-chrome` or `--exclude-regions` for the chrome area
+
 ## Analysis Checklist
 
 Study the design image using Vision AND the extracted data. Document every item below.
@@ -87,9 +109,14 @@ Within each section: Container → Grid/Flex → Components
 
 After visual analysis, verify colors with precise sampling:
 
-Sample specific coordinates:
+Sample specific coordinates (use content area coordinates, not mockup coordinates):
 ```bash
 node ${CLAUDE_SKILL_DIR}/../_shared/scripts/extract-color.mjs <design-image> <x,y coordinates of key regions>
+```
+
+Sample dominant color from a region (e.g., header background, button area):
+```bash
+node ${CLAUDE_SKILL_DIR}/../_shared/scripts/extract-color.mjs <design-image> --region x,y,w,h
 ```
 
 Extract full palette:
@@ -108,4 +135,29 @@ This gives you font-family, font-size, font-weight, line-height, letter-spacing,
 
 ## Output
 
-Write the complete analysis as a structured document. This becomes the reference for all subsequent build work.
+Write the complete analysis as a structured document with these sections:
+
+```
+## Device Frame
+- Format: <bare screenshot | phone mockup>
+- Content area: <width>x<height> (inset from edges by top:<n>px right:<n>px bottom:<n>px left:<n>px)
+- Viewport to use: <width>x<height>
+- pixel-diff flags: <--auto-crop-chrome | --exclude-regions x,y,w,h | none>
+
+## Colors
+<token name>: #hex  ← semantic names for every distinct color
+
+## Typography
+<style name>: <font-family> <size>/<line-height> weight:<n> tracking:<n>
+
+## Spacing
+<location>: <value>
+
+## Components
+<name>: <description, variants, states>
+
+## DOM Tree
+<hierarchical breakdown>
+```
+
+This becomes the reference for all subsequent build work.
