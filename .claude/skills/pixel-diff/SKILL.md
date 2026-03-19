@@ -3,7 +3,7 @@ name: pixel-diff
 description: Run pixel-level comparison between a design image and a browser screenshot using pixelmatch. Use to verify implementation accuracy.
 user-invocable: true
 allowed-tools: Bash, Read
-argument-hint: <design.png> <screenshot-or-url> [--normalize] [--structural] [--exclude-regions x,y,w,h] [--auto-crop-chrome]
+argument-hint: <design.png> <screenshot-or-url> [--normalize] [--structural] [--exclude-phone-ui] [--has-notch] [--exclude-regions x,y,w,h] [--auto-crop-chrome]
 ---
 
 Run pixel comparison between two images, or capture a URL and compare.
@@ -72,41 +72,55 @@ node ${CLAUDE_SKILL_DIR}/../_shared/scripts/compare.mjs \
 
 ---
 
-## Region Masking
+## Excluding Non-Design Phone OS Elements
 
-### `--exclude-regions x,y,w,h`
-Mask a rectangular region before comparing. Repeat for multiple regions.
+### `--exclude-phone-ui` ← **use this for all phone mockup designs**
 
-**Use when:**
-- The design includes a phone chrome/device frame that the implementation doesn't have
-- A known area differs by design (e.g., dynamic timestamp in status bar)
-- Real photos in design vs color placeholders in implementation
+Automatically detects and masks **all OS-level, non-design phone elements** in both the final and interim validation. Apply to every `/pixel-diff` and `/fix-loop` run when the reference is a phone mockup.
+
+**What it masks:**
+
+| Area | Elements ignored |
+|------|-----------------|
+| **Device bezel** | Physical frame, rounded corners, hardware buttons, speaker grilles |
+| **Status bar** (top) | Clock / time, cellular signal bars, carrier name, 5G/LTE indicator, WiFi icon, battery icon + %, Bluetooth icon, GPS/location arrow, airplane mode, Do Not Disturb crescent, screen recording dot, personal hotspot, alarm icon, NFC indicator, VPN badge, rotation lock |
+| **Home indicator** (bottom) | Home swipe bar, gesture safe-area padding |
+
+Detection is automatic — the script scans row edge-density to find where OS chrome ends and app content begins.
 
 ```bash
-# Mask top status bar and bottom chrome
 node ${CLAUDE_SKILL_DIR}/../_shared/scripts/compare.mjs \
   $(pwd)/reference/home.png \
   $(pwd)/.claude/tmp/screenshot.png \
-  --normalize \
-  --exclude-regions 0,0,584,60 \
-  --exclude-regions 0,1108,584,60
+  --normalize --exclude-phone-ui
+```
+
+### `--has-notch`
+
+Additionally masks the notch or Dynamic Island (top-center cutout area). Use together with `--exclude-phone-ui` when the mockup shows a visible notch.
+
+```bash
+node ${CLAUDE_SKILL_DIR}/../_shared/scripts/compare.mjs \
+  $(pwd)/reference/home.png \
+  $(pwd)/.claude/tmp/screenshot.png \
+  --normalize --exclude-phone-ui --has-notch
 ```
 
 ### `--auto-crop-chrome`
-Automatically detect and crop uniform-color borders (device frame / phone chrome) from both images before comparing. Scans each edge inward until pixel variance increases, cropping up to 15% from each side.
 
-**Use when:**
-- The design image is a phone mockup with a visible device frame
-- You want accurate mismatch % without manually calculating crop coordinates
+Crop uniform-color borders (device bezel) only — does not mask status bar or home indicator. Already included when using `--exclude-phone-ui`, so use this separately only when you want bezel cropping without the full phone UI masking.
+
+### `--exclude-regions x,y,w,h`
+
+Mask a specific rectangular area manually. Repeat for multiple regions. Use for custom masking beyond what `--exclude-phone-ui` covers (e.g., real photo vs placeholder, dynamic ad banners).
 
 ```bash
 node ${CLAUDE_SKILL_DIR}/../_shared/scripts/compare.mjs \
   $(pwd)/reference/home.png \
   $(pwd)/.claude/tmp/screenshot.png \
-  --normalize --auto-crop-chrome
+  --normalize --exclude-phone-ui \
+  --exclude-regions 10,200,280,280
 ```
-
-> **Note:** `--auto-crop-chrome` crops the screenshot too. Make sure the screenshot uses the same viewport as the design's content area (not the full mockup size).
 
 ---
 
