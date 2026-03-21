@@ -28,7 +28,7 @@ Defaults: top 20 colors, quantization step 8. Use `--quantize 4` for more precis
 After reviewing the palette:
 1. Use Vision to map each color to its semantic purpose (background, text, border, brand, status)
 2. Identify colors Vision sees that the palette missed — small-area accents. Use `/extract-colors` with specific coordinates for those.
-3. Prepare the color map for Tailwind config.
+3. Prepare the color map for `AppColors` in `shared/theme/app_colors.dart`.
 
 ## Output
 

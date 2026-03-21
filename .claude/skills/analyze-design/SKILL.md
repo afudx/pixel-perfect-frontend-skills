@@ -1,6 +1,6 @@
 ---
 name: analyze-design
-description: Perform thorough design analysis of a provided image — extract colors, typography, spacing, layout, component inventory, and DOM decomposition. Use BEFORE writing any component code.
+description: Perform thorough design analysis of a provided image — extract colors, typography, spacing, layout, component inventory, and widget tree decomposition. Use BEFORE writing any component code.
 user-invocable: true
 allowed-tools: Read, Bash, Grep, Glob
 argument-hint: [design-image-path-or-url]
@@ -8,15 +8,7 @@ argument-hint: [design-image-path-or-url]
 
 Analyze the design image at `$ARGUMENTS`. This must complete BEFORE any component code is written.
 
-If the argument is a URL instead of a local file path, first capture it:
-```bash
-node ${CLAUDE_SKILL_DIR}/../_shared/scripts/screenshot.mjs $ARGUMENTS \
-  --output .claude/tmp/design-full.png --full-page \
-  --extract-text --extract-styles --extract-measurements \
-  --wait 5000
-```
-
-This gives you: a full-page screenshot, all text content, all computed styles (colors, fonts, sizes), all element measurements, all images, and all links.
+If the argument is a URL instead of a local file path, take a screenshot using Maestro on a running device (`mcp__maestro__take_screenshot`) or use the Playwright MCP tools as a fallback for web URLs.
 
 ## Pre-Analysis: Device Frame Detection
 
@@ -38,7 +30,7 @@ node ${CLAUDE_SKILL_DIR}/../_shared/scripts/extract-color.mjs <design.png> --reg
 - Report the content inset (chrome thickness on each edge)
 - Use `--region` mode to sample colors only from the content area, not the chrome
 - Note the actual content dimensions for viewport configuration in `/setup-project`
-- When running `/pixel-diff`, use `--auto-crop-chrome` or `--exclude-regions` for the chrome area
+- When running `/pixel-diff`, use `--exclude-phone-ui` or `--exclude-regions` for the chrome area
 
 ## Analysis Checklist
 
@@ -52,7 +44,7 @@ Study the design image using Vision AND the extracted data. Document every item 
 - Badge/tag background and text colors
 - Gradient directions and color stops with positions
 - Overlay opacity values
-- Hover state colors if visible
+- Active/pressed state colors if visible
 
 ### Typography
 - Font family — study letterforms carefully (Inter ≠ Roboto, DM Sans ≠ Plus Jakarta Sans)
@@ -87,7 +79,7 @@ Study the design image using Vision AND the extracted data. Document every item 
 
 ### Icons
 - Style: outline, filled, or duotone
-- Library: Lucide, Heroicons, Phosphor, Feather
+- Library mapping: Lucide → Flutter Icons / Material Icons / Cupertino Icons / custom SVG
 - Sizes and stroke weight
 
 ### Text Content
@@ -98,12 +90,22 @@ List every unique UI component: nav, buttons (with variants), inputs, cards, bad
 
 For repeating patterns (e.g., 3 feature cards), note exact count and content of each instance.
 
-### Layout Decomposition
-Break into a hierarchical DOM tree:
+### Widget Tree Decomposition
+Break into a hierarchical Flutter widget tree:
 ```
-Page wrapper → Header → Sections (top-to-bottom) → Footer
-Within each section: Container → Grid/Flex → Components
+Scaffold → AppBar → Body (Column/ListView) → Sections (top-to-bottom) → BottomNavigationBar
+Within each section: Container/Padding → Row/Column/Wrap/GridView → Widgets
 ```
+
+### FSD Layer Assignment
+For each component in the inventory, assign it to an FSD layer:
+- `shared/ui/` — Design system atoms: buttons, inputs, cards, badges, avatars, dividers
+- `entities/*/ui/` — Business object displays: UserCard, ProductTile, etc.
+- `features/*/ui/` — Interactive features: SearchBar, AuthForm, etc. (only if reused)
+- `widgets/*/ui/` — Composed reusable blocks: AppHeader, Sidebar (only if reused cross-page)
+- `pages/*/ui/` — Full screen compositions
+
+**FSD v2.1 rule:** Start by keeping everything in pages. Only extract to lower layers when genuinely reused across pages.
 
 ## Color Verification
 
@@ -124,14 +126,38 @@ Extract full palette:
 node ${CLAUDE_SKILL_DIR}/../_shared/scripts/sample-palette.mjs <design-image> --top 30
 ```
 
-## Precise Measurements (for URL-based designs)
+## Flutter Token Mapping
 
-If the source is a live website, extract exact computed measurements:
-```bash
-node ${CLAUDE_SKILL_DIR}/../_shared/scripts/inspect-styles.mjs <url> h1 h2 h3 button img footer header
+After extracting all design tokens, map them to Flutter constructs:
+
 ```
+## Flutter Token Mapping
 
-This gives you font-family, font-size, font-weight, line-height, letter-spacing, padding, margin, gap, border-radius, box-shadow, background-color, and element rects for every matched element.
+### ColorScheme
+primary: #hex → Color(0xFF...)
+onPrimary: #hex → Color(0xFF...)
+surface: #hex → Color(0xFF...)
+...
+
+### TextTheme
+headlineLarge: <font> <size>/<line-height> w<weight> → GoogleFonts.<font>(fontSize: ..., fontWeight: ..., height: ...)
+bodyLarge: ...
+...
+
+### Spacing Constants
+containerPadding: <n>px → EdgeInsets.symmetric(horizontal: <n>)
+sectionGap: <n>px → SizedBox(height: <n>)
+...
+
+### BoxShadow
+card: → BoxShadow(color: Color(0x...), blurRadius: <n>, offset: Offset(<x>, <y>))
+...
+
+### BorderRadius
+button: <n>px → BorderRadius.circular(<n>)
+card: <n>px → BorderRadius.circular(<n>)
+...
+```
 
 ## Output
 
@@ -142,7 +168,7 @@ Write the complete analysis as a structured document with these sections:
 - Format: <bare screenshot | phone mockup>
 - Content area: <width>x<height> (inset from edges by top:<n>px right:<n>px bottom:<n>px left:<n>px)
 - Viewport to use: <width>x<height>
-- pixel-diff flags: <--auto-crop-chrome | --exclude-regions x,y,w,h | none>
+- pixel-diff flags: <--exclude-phone-ui | --exclude-regions x,y,w,h | none>
 
 ## Colors
 <token name>: #hex  ← semantic names for every distinct color
@@ -156,8 +182,18 @@ Write the complete analysis as a structured document with these sections:
 ## Components
 <name>: <description, variants, states>
 
-## DOM Tree
-<hierarchical breakdown>
+## Widget Tree
+<hierarchical Flutter widget breakdown>
+
+## FSD Layer Assignment
+shared/ui/: [list of atoms]
+entities/: [list if any]
+features/: [list if any]
+widgets/: [list if any]
+pages/: [list of screens]
+
+## Flutter Token Mapping
+<ColorScheme, TextTheme, Spacing, Shadows, Radii mappings>
 ```
 
 This becomes the reference for all subsequent build work.

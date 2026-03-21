@@ -41,4 +41,4 @@ Print each color with its coordinate. Group by semantic purpose:
 - Border colors
 - Brand/accent colors
 
-These values go directly into the Tailwind config.
+These values go directly into `AppColors` in `shared/theme/app_colors.dart`.
