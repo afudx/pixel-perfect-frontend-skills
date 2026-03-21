@@ -114,7 +114,36 @@ src/
   assets/         # Images, fonts, SVGs
 ```
 
-### 8. Verify
+### 8. External CDN Images
+
+When the design uses real product photos (not color placeholders), source them from a CDN and verify each URL before adding it to code.
+
+**Unsplash CDN — critical format note:**
+
+Unsplash photos have two ID formats. Only the numeric format works as a CDN path:
+
+| Format | Example | Works as CDN path? |
+|--------|---------|-------------------|
+| Numeric (old) | `photo-1576045057995-568f588f82fb` | ✅ Yes — `https://images.unsplash.com/photo-1576045057995-568f588f82fb` |
+| Slug (new) | `BkuUOofPGkE` from `unsplash.com/photos/…-BkuUOofPGkE` | ❌ No — does not map to CDN |
+
+**Workflow — verify before committing to code:**
+
+1. Find a candidate photo on `unsplash.com/photos/` — the numeric ID is NOT in the URL, it must be found via the download link or API
+2. Test the CDN URL directly in the browser **before** adding it to code:
+   ```js
+   // Via Playwright MCP browser_navigate + browser_take_screenshot
+   // Navigate to: https://images.unsplash.com/photo-{id}?w=400&h=400&fit=crop&q=80
+   // Take screenshot and inspect visually
+   ```
+3. Only commit the URL after confirming the image shows the correct subject
+4. Configure `next.config.ts` / `vite.config.ts` to allow the CDN hostname (e.g. `images.unsplash.com`)
+
+**Placeholder strategy (when real photos aren't available yet):**
+
+Use a `<div>` with `backgroundColor` sampled from the design region (via `/extract-colors`) and matching dimensions. Mark with `data-placeholder="true"` for easy grep in `/verify-completeness`.
+
+### 9. Verify
 Start dev server, confirm it loads using the correct viewport dimensions:
 ```bash
 node ${CLAUDE_SKILL_DIR}/../_shared/scripts/screenshot.mjs <dev-server-url> \
