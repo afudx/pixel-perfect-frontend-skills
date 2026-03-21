@@ -91,6 +91,26 @@ START
 │   └── If mismatch > 2% on any section:
 │       └── /fix-loop design.png <dev-server-url>
 │
+├── PHASE 3.5: ASSET INTEGRATION (if design uses real photos)
+│   ├── For each placeholder div that should show a real image:
+│   │   1. Find candidate photo on CDN (e.g. Unsplash)
+│   │   2. Verify the URL loads the correct subject BEFORE touching code:
+│   │   │     navigate browser to CDN URL → take screenshot → inspect visually
+│   │   3. Update code only after visual confirmation
+│   │   4. Screenshot the page to confirm the image renders (not broken)
+│   │
+│   ├── Unsplash CDN — numeric IDs only:
+│   │   ✅ https://images.unsplash.com/photo-1576045057995-568f588f82fb
+│   │   ❌ https://images.unsplash.com/photo-BkuUOofPGkE  (slug IDs don't work)
+│   │
+│   └── After all images updated — check for broken images:
+│       const broken = await page.evaluate(() =>
+│         [...document.images]
+│           .filter(img => !img.complete || img.naturalWidth === 0)
+│           .map(img => img.src)
+│       );
+│       Zero broken images before proceeding.
+│
 ├── PHASE 4: VERIFY (mandatory — never skip)
 │   ├── /pixel-diff design.png <dev-server-url>
 │   │   └── Strict mode (no --normalize). Must be < 2%.
