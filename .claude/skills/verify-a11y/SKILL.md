@@ -1,48 +1,112 @@
 ---
 name: verify-a11y
-description: Run accessibility audit using axe-core injection and manual checks. Use as part of final verification before delivery.
+description: Run Flutter accessibility audit using code analysis and Maestro hierarchy inspection. Use as part of final verification before delivery.
 user-invocable: true
-allowed-tools: Bash, Read
-argument-hint: <dev-server-url>
+allowed-tools: Bash, Read, Grep, Glob, mcp__maestro__inspect_view_hierarchy
+argument-hint: <device-id>
 ---
 
-Run accessibility audit on `$ARGUMENTS`.
+# Verify Accessibility — Flutter Semantics Audit
 
-## Execution
+Audit the Flutter app for accessibility compliance using code-level analysis and runtime hierarchy inspection.
 
-Run the shared accessibility audit script via Playwright CLI:
+## Step 1: Code-level audit
 
+Run the Flutter a11y audit script (use `--compact` for reduced output):
 ```bash
-node ${CLAUDE_SKILL_DIR}/../_shared/scripts/a11y-audit.mjs $ARGUMENTS
+node .claude/skills/_shared/scripts/flutter-a11y-audit.mjs --project-dir . --compact
 ```
 
-This script:
-1. Launches a headless Chromium browser via Playwright
-2. Navigates to the URL
-3. Injects axe-core from node_modules and runs it
-4. Reports all violations with impact level, element, and fix suggestion
-5. Runs manual checks: alt text, heading hierarchy, form labels, keyboard nav
+This checks for:
+- `Image` widgets without `semanticLabel`
+- `GestureDetector` without `Semantics` wrapper
+- `ExcludeSemantics` usage (potential red flag)
+- `IconButton` without `tooltip`
+- Light gray text colors that may have insufficient contrast
 
-## After Running
+### Manual code checks
 
-Review the output for:
-- **Critical/Serious** violations — must fix before delivery
-- **Moderate** violations — fix if possible
-- **Minor** violations — note for future improvement
+#### Image accessibility
+```bash
+rtk grep -rn "Image.network\|Image.asset\|Image.file" lib/ --include="*.dart"
+```
+Every `Image` widget must have a `semanticLabel` parameter describing the content for screen readers.
 
-If violations are found, fix the code and re-run this skill.
+#### Custom tap targets
+```bash
+rtk grep -rn "GestureDetector(" lib/ --include="*.dart"
+```
+Each `GestureDetector` should be wrapped in `Semantics(label: '...', button: true, child: ...)` or use `InkWell` which has built-in semantics.
+
+#### Heading semantics
+```bash
+rtk grep -rn "Semantics(" lib/ --include="*.dart" | grep "header: true"
+```
+Major heading text should be wrapped in `Semantics(header: true)` for screen reader navigation.
+
+#### Form labels
+```bash
+rtk grep -rn "TextField\|TextFormField" lib/ --include="*.dart"
+```
+Every text field must have a `decoration` with `labelText` or `hintText` for accessibility.
+
+## Step 2: Runtime hierarchy audit
+
+```
+mcp__maestro__inspect_view_hierarchy(device_id: "<device-id>")
+```
+
+From the hierarchy, check:
+
+### Unnamed interactive elements
+Find elements with `clickable=true` that have no `text` or `contentDescription`. These are invisible to screen readers.
+
+### Touch target sizes
+Find interactive elements with bounds width < 48 or height < 48 (dp). The minimum accessible touch target is 48×48dp per WCAG guidelines.
+
+### Missing labels
+Find input fields without associated labels or content descriptions.
+
+## Step 3: Flutter analyze
+
+Run Flutter's built-in analysis (use flutter-cli.sh for compressed output):
+```bash
+bash .claude/skills/_shared/scripts/flutter-cli.sh analyze
+```
+
+Check for accessibility-related lint warnings. Ensure the project has appropriate lint rules enabled in `analysis_options.yaml`.
+
+## Step 4: Semantics tree structure
+
+Verify the semantics tree is logical:
+- Heading hierarchy: H1 before H2 before H3
+- Reading order follows visual layout (top-to-bottom, left-to-right)
+- Interactive elements are reachable via screen reader navigation
+- Decorative elements are excluded from semantics tree
 
 ## Output
 
 ```
-Automated (axe-core):
-  Violations: <count>
-  <per violation: element, impact, fix>
+ACCESSIBILITY AUDIT
+===================
+Code Audit:
+  [PASS/FAIL] Images have semanticLabel (N missing)
+  [PASS/FAIL] GestureDetectors have Semantics (N missing)
+  [PASS/FAIL] IconButtons have tooltip (N missing)
+  [PASS/WARN] ExcludeSemantics usage (N instances — verify intentional)
+  [PASS/WARN] Color contrast (N potential issues)
 
-Manual:
-  [PASS/FAIL] Image alt text
-  [PASS/FAIL] Keyboard navigation
-  [PASS/FAIL] Heading hierarchy
-  [PASS/FAIL] Form labels
-  [PASS/FAIL] Color contrast
+Runtime Audit:
+  [PASS/FAIL] No unnamed interactive elements (N found)
+  [PASS/FAIL] Touch targets ≥ 48×48dp (N too small)
+  [PASS/FAIL] Input fields have labels
+
+Flutter Analyze:
+  [PASS/FAIL] Zero accessibility-related warnings
+
+Summary:
+  Critical: N
+  Serious: N
+  Moderate: N
+  Minor: N
 ```
