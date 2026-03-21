@@ -83,6 +83,15 @@ If `list_devices` succeeds, all other tools are available on the same server —
 3. Call `mcp__maestro__take_screenshot` to verify screenshot capability
 4. Report: device ID, platform, screen dimensions
 
+**iOS 18+ simulator note**: Impeller (Flutter's graphics backend) may fail with `ShaderCompilerException` on iOS 18+ simulators running on Apple Silicon. If the app shows a black screen or crashes, use `--no-enable-impeller`:
+```bash
+FLUTTER_EXTRA_FLAGS="--no-enable-impeller" bash .claude/skills/_shared/scripts/flutter-cli.sh run <device-id>
+```
+
+**Aspect ratio note**: Compare the design's logical dimensions against the chosen device's logical screen size. If they differ by more than ~5% in aspect ratio (e.g., design is 390×940 but iPhone 15 is 393×852), the pixel-diff will show systematic layout shift. Either:
+- Choose a device matching the design's AR, OR
+- Accept a scroll-cropped comparison (compare only the above-the-fold portion)
+
 ### 5. Verify optional MCPs
 
 These MCPs are used as helpers in specific skills. Report availability but do not fail if absent.

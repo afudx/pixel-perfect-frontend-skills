@@ -83,7 +83,8 @@ if command -v pod &>/dev/null; then
   echo "[OK] CocoaPods $POD_VERSION"
 else
   echo "[WARN] CocoaPods not found. Required for iOS builds."
-  echo "       Install: sudo gem install cocoapods"
+  echo "       Install via Homebrew (recommended): brew install cocoapods"
+  echo "       Note: sudo gem install cocoapods fails on macOS with SIP-protected system Ruby."
 fi
 
 echo ""

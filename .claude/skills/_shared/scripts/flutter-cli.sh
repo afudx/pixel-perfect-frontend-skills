@@ -11,8 +11,29 @@
 #   bash flutter-cli.sh run <device-id>  # Filtered flutter run
 #   bash flutter-cli.sh doctor           # Filtered flutter doctor
 #   bash flutter-cli.sh version          # Compact version info
+#
+# iOS Simulator notes:
+#   iOS 18+ simulators on Apple Silicon may fail with Impeller shader errors.
+#   Pass FLUTTER_EXTRA_FLAGS="--no-enable-impeller" to disable:
+#     FLUTTER_EXTRA_FLAGS="--no-enable-impeller" bash flutter-cli.sh run <device-id>
 
 set -euo pipefail
+
+# Auto-detect Flutter if not in PATH (common non-standard install locations)
+if ! command -v flutter &>/dev/null; then
+  for _flutter_candidate in \
+    "/opt/homebrew/share/flutter/bin" \
+    "$HOME/development/flutter/bin" \
+    "$HOME/flutter/bin" \
+    "/usr/local/flutter/bin" \
+    "/snap/flutter/current/bin"
+  do
+    if [ -f "$_flutter_candidate/flutter" ]; then
+      export PATH="$_flutter_candidate:$PATH"
+      break
+    fi
+  done
+fi
 
 CMD="${1:-help}"
 shift 2>/dev/null || true
@@ -95,16 +116,37 @@ case "$CMD" in
     if [ -n "$DEVICE_ID" ]; then
       DEVICE_FLAG="-d $DEVICE_ID"
     fi
-    echo "[INFO] Starting flutter run $DEVICE_FLAG (background)..."
-    flutter run $DEVICE_FLAG 2>&1 &
+    EXTRA_FLAGS="${FLUTTER_EXTRA_FLAGS:-}"
+    LOG_FILE="/tmp/flutter-run-$$.log"
+    echo "[INFO] Starting flutter run $DEVICE_FLAG $EXTRA_FLAGS (background)..."
+    flutter run $DEVICE_FLAG $EXTRA_FLAGS >"$LOG_FILE" 2>&1 &
     FLUTTER_PID=$!
-    # Wait for compilation, then return
-    sleep 10
-    if kill -0 $FLUTTER_PID 2>/dev/null; then
-      echo "[PASS] Flutter app running (PID: $FLUTTER_PID)"
-    else
-      echo "[FAIL] Flutter app crashed during startup"
-      exit 1
+    # Poll for "Syncing files" or "Flutter run key commands" which signals successful launch
+    ELAPSED=0
+    TIMEOUT=60
+    while [ $ELAPSED -lt $TIMEOUT ]; do
+      sleep 2
+      ELAPSED=$((ELAPSED + 2))
+      if ! kill -0 $FLUTTER_PID 2>/dev/null; then
+        echo "[FAIL] Flutter app crashed during startup"
+        grep -i "error\|exception\|failed" "$LOG_FILE" | head -15
+        rm -f "$LOG_FILE"
+        exit 1
+      fi
+      if grep -q "Flutter run key commands\|Syncing files to device\|Reloaded" "$LOG_FILE" 2>/dev/null; then
+        echo "[PASS] Flutter app running (PID: $FLUTTER_PID)"
+        rm -f "$LOG_FILE"
+        break
+      fi
+      if grep -q "ShaderCompilerException\|Impeller" "$LOG_FILE" 2>/dev/null; then
+        echo "[WARN] Impeller shader error detected. Retry with: FLUTTER_EXTRA_FLAGS=\"--no-enable-impeller\" bash flutter-cli.sh run $DEVICE_ID"
+        kill $FLUTTER_PID 2>/dev/null || true
+        rm -f "$LOG_FILE"
+        exit 1
+      fi
+    done
+    if [ $ELAPSED -ge $TIMEOUT ]; then
+      echo "[WARN] flutter run still compiling after ${TIMEOUT}s. App may still be starting (PID: $FLUTTER_PID)"
     fi
     ;;
 

@@ -8,7 +8,8 @@ argument-hint: <design-image> <device-id>
 
 # Fix Loop — Iterative Pixel-Perfect Correction for Flutter
 
-Maximum 3 iterations. Edit Dart → hot reload → Maestro screenshot → pixel-diff → repeat.
+Maximum 5 iterations. Edit Dart → hot reload → Maestro screenshot → pixel-diff → repeat.
+If mismatch is not decreasing after 2 iterations, check Step 0 for comparison setup issues before continuing.
 
 ## Arguments
 
@@ -19,16 +20,31 @@ Maximum 3 iterations. Edit Dart → hot reload → Maestro screenshot → pixel-
 
 Before fixing, classify what's causing the mismatch. Read the diff image (`.claude/tmp/diff.png`) with Vision.
 
-### Check for broken images first
+### Check for comparison setup issues first (uniform high mismatch >10%)
 
-Search for failed network images in the code:
+If ALL 6 quadrants show similar high mismatch (e.g., 10-15% everywhere), **stop** — this is a comparison setup problem, not a code problem. No amount of Dart edits will fix it.
+
+**Symptom: diff shows two overlapping copies of every element (ghosting)**
+→ Aspect ratio mismatch between design and screenshot. The `compare.mjs` output will show `[WARN] Aspect ratio mismatch`.
+→ Fix: check that `--design-crop` and `--screenshot-crop` are correctly set. The screenshot must cover the same logical height as the design's content area.
+→ Example for iPhone 16 @3× vs 390×940 design: `--screenshot-crop 0,147,1179,<height>` where height = 940×3 = 2820px. If the device is only 852pt tall, the design is taller than the device — you must either crop the design to 852pt or accept that the bottom section won't be compared.
+
+**Symptom: diff is a solid red rectangle**
+→ Wrong crop: `--auto-crop-chrome` applied design chrome bounds to screenshot too. Fix: use `--design-crop` and `--screenshot-crop` separately (see `/pixel-diff` for the phone mockup workflow).
+
+**Symptom: app shows black/error screen in screenshot**
+→ Impeller shader error (iOS 18+ simulator). Restart with `--no-enable-impeller`:
+```bash
+FLUTTER_EXTRA_FLAGS="--no-enable-impeller" bash .claude/skills/_shared/scripts/flutter-cli.sh run <device-id>
+```
+
+### Check for broken images
+
 ```bash
 rtk grep -rn "Image.network" lib/ --include="*.dart"
 ```
 
-If `Image.network` widgets reference URLs that may be broken, verify by inspecting the device — broken images show Flutter's error icon (gray icon with a broken image symbol).
-
-Use `mcp__maestro__inspect_view_hierarchy` to check for error widgets in the tree.
+Broken images show Flutter's gray broken-image icon. Verify via `mcp__maestro__inspect_view_hierarchy`.
 
 ### Classify each mismatched region
 
@@ -36,6 +52,7 @@ For each region with mismatch in the 6-quadrant breakdown, categorize:
 
 | Category | Description | Fixable? |
 |----------|-------------|----------|
+| **Comparison setup** | AR mismatch, wrong crop, wrong flags | Fix comparison command, not code |
 | **Device chrome** | Status bar, home indicator, notch | No — use `--exclude-phone-ui` |
 | **Missing assets** | Placeholder vs real photo | No — requires correct image URL |
 | **Layout shift** | Wrong padding, margin, alignment | Yes |

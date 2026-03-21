@@ -9,12 +9,29 @@
  *
  * Additional flags:
  *   --exclude-regions x,y,w,h   Mask a region before comparing (can be repeated).
- *   --auto-crop-chrome           Detect and crop uniform border (phone chrome/device frame).
- *   --exclude-phone-ui           Mask ALL non-design phone OS elements: bezel, status bar
- *                                (clock, battery, signal, carrier...), notch/Dynamic Island,
- *                                and home indicator. Use for any phone mockup reference image.
- *   --has-notch                  Also mask the notch/Dynamic Island center area (use with
+ *   --auto-crop-chrome           Detect and crop uniform border (phone chrome/device frame)
+ *                                from the DESIGN only. Do NOT use with simulator screenshots.
+ *   --design-crop x,y,w,h       Explicitly crop the design image before comparison.
+ *                                Use when the design is a phone mockup: pass the content area
+ *                                coordinates (left,top,width,height). This replaces --auto-crop-chrome
+ *                                and gives you precise control over the design crop region.
+ *   --screenshot-crop x,y,w,h   Explicitly crop the screenshot before comparison.
+ *                                Use when the screenshot includes OS chrome at known pixel offsets.
+ *                                E.g. iPhone 16 at 3× DPR: --screenshot-crop 0,147,1179,2409
+ *   --exclude-phone-ui           After crops/resize, mask OS UI strips (status bar + home indicator)
+ *                                by auto-detecting their height within the comparison image.
+ *   --has-notch                  Additionally mask the notch/Dynamic Island center area (use with
  *                                --exclude-phone-ui when the design has a visible notch).
+ *
+ * IMPORTANT — Phone mockup vs simulator workflow:
+ *   When comparing a phone mockup design against a simulator screenshot, ALWAYS use
+ *   --design-crop (not --auto-crop-chrome) because the chrome is at different scales.
+ *   The simulator screenshot chrome is separate — use --screenshot-crop for it.
+ *   Example:
+ *     node compare.mjs design.png screenshot.png \
+ *       --design-crop 134,192,625,1232 \
+ *       --screenshot-crop 0,147,1179,2409 \
+ *       --normalize --exclude-phone-ui
  *
  * Usage:
  *   node compare.mjs <design.png> <screenshot.png> [options]
@@ -64,18 +81,27 @@ Flags:
       Mask a rectangular region before comparing. Can be repeated.
       Example: --exclude-regions 0,0,584,80
 
+  --design-crop x,y,w,h
+      Explicitly crop the design to its content area before comparison.
+      Use when the design is a phone mockup (pass the content area bounds).
+      Preferred over --auto-crop-chrome for phone mockup + simulator workflows.
+      Example: --design-crop 134,192,625,1232
+
+  --screenshot-crop x,y,w,h
+      Explicitly crop the screenshot before comparison.
+      Use when the screenshot has OS chrome at known pixel offsets.
+      Example for iPhone 16 @3× with 49px logical status bar:
+        --screenshot-crop 0,147,1179,2409
+
   --auto-crop-chrome
-      Detect and strip uniform-color border (device bezel / phone frame).
+      Auto-detect and strip uniform-color border from the DESIGN only.
+      Do NOT use with simulator screenshots — use --screenshot-crop instead.
 
   --exclude-phone-ui
-      Mask ALL non-design phone OS elements automatically:
-        • Device bezel / physical frame
-        • Status bar: clock, battery, signal bars, carrier, WiFi, Bluetooth,
-          GPS arrow, airplane mode, Do Not Disturb, screen recording dot,
-          hotspot, alarm icon, NFC, VPN, rotation lock
-        • Home indicator / gesture bar (bottom swipe area)
-      This is the recommended flag for any phone mockup reference image.
-      Apply to BOTH interim (fix-loop) and final validation runs.
+      After crops and resize, mask OS UI strips (status bar + home indicator)
+      by auto-detecting their height within the comparison image.
+      Also auto-detects and crops the design bezel (same as --auto-crop-chrome)
+      when neither --design-crop nor --screenshot-crop is specified.
 
   --has-notch
       Additionally mask the notch / Dynamic Island area (top-center cutout).
@@ -95,13 +121,24 @@ Exit codes:
 
 const normalize        = rawArgs.includes("--normalize");
 const structural       = rawArgs.includes("--structural");
-const autoCropChrome   = rawArgs.includes("--auto-crop-chrome") || rawArgs.includes("--exclude-phone-ui");
+const autoCropChrome   = rawArgs.includes("--auto-crop-chrome");
 const excludePhoneUI   = rawArgs.includes("--exclude-phone-ui");
 const hasNotch         = rawArgs.includes("--has-notch");
 
-// Collect --exclude-regions values (flag+value pairs)
+// Collect --exclude-regions, --design-crop, --screenshot-crop values (flag+value pairs)
 const excludeRegions = [];
 const consumedIndices = new Set();
+let explicitDesignCrop = null;
+let explicitScreenshotCrop = null;
+
+function parseCropArg(val, flagName) {
+  const parts = val.split(",").map(Number);
+  if (parts.length === 4 && parts.every((n) => !isNaN(n))) {
+    return { left: parts[0], top: parts[1], width: parts[2], height: parts[3] };
+  }
+  console.error(`Invalid ${flagName} value: ${val}. Expected x,y,w,h`);
+  process.exit(1);
+}
 
 for (let i = 0; i < rawArgs.length; i++) {
   if (rawArgs[i] === "--exclude-regions" && rawArgs[i + 1]) {
@@ -113,6 +150,14 @@ for (let i = 0; i < rawArgs.length; i++) {
       console.error(`Invalid --exclude-regions value: ${rawArgs[i + 1]}. Expected x,y,w,h`);
       process.exit(1);
     }
+    i++;
+  } else if (rawArgs[i] === "--design-crop" && rawArgs[i + 1]) {
+    explicitDesignCrop = parseCropArg(rawArgs[i + 1], "--design-crop");
+    consumedIndices.add(i + 1);
+    i++;
+  } else if (rawArgs[i] === "--screenshot-crop" && rawArgs[i + 1]) {
+    explicitScreenshotCrop = parseCropArg(rawArgs[i + 1], "--screenshot-crop");
+    consumedIndices.add(i + 1);
     i++;
   }
 }
@@ -316,23 +361,33 @@ async function main() {
   await checkBlank(designPath, "Design image");
   await checkBlank(screenshotPath, "Screenshot");
 
-  // --- Step 1: Crop device bezel ---
-  let cropRect = undefined;
-  if (autoCropChrome) {
-    cropRect = await detectChromeCrop(designPath);
+  // --- Step 1: Determine crop for design and screenshot independently ---
+  let designCrop = explicitDesignCrop || null;
+  let screenshotCrop = explicitScreenshotCrop || null;
+
+  // --auto-crop-chrome: auto-detect bezel crop for design only
+  if (autoCropChrome || (excludePhoneUI && !explicitDesignCrop && !explicitScreenshotCrop)) {
+    const detected = await detectChromeCrop(designPath);
     const original = await sharp(designPath).metadata();
-    if (cropRect.width < original.width || cropRect.height < original.height) {
-      console.log(`Device bezel detected and cropped:`);
+    if (detected.width < original.width || detected.height < original.height) {
+      designCrop = detected;
+      console.log(`Design bezel detected and cropped:`);
       console.log(`  Original:   ${original.width} x ${original.height}`);
-      console.log(`  Content:    ${cropRect.width} x ${cropRect.height} (inset ${cropRect.left},${cropRect.top})`);
+      console.log(`  Content:    ${detected.width} x ${detected.height} (inset ${detected.left},${detected.top})`);
     } else {
-      console.log(`Device bezel: no border detected, using full image.`);
-      cropRect = undefined;
+      console.log(`Design bezel: no border detected, using full image.`);
     }
   }
 
-  let design    = await loadImage(designPath,     null, null, cropRect);
-  let screenshot = await loadImage(screenshotPath, null, null, cropRect);
+  if (explicitDesignCrop) {
+    console.log(`Design crop (explicit): left=${explicitDesignCrop.left} top=${explicitDesignCrop.top} w=${explicitDesignCrop.width} h=${explicitDesignCrop.height}`);
+  }
+  if (explicitScreenshotCrop) {
+    console.log(`Screenshot crop (explicit): left=${explicitScreenshotCrop.left} top=${explicitScreenshotCrop.top} w=${explicitScreenshotCrop.width} h=${explicitScreenshotCrop.height}`);
+  }
+
+  let design     = await loadImage(designPath,     null, null, designCrop);
+  let screenshot = await loadImage(screenshotPath, null, null, screenshotCrop);
 
   if (design.width !== screenshot.width || design.height !== screenshot.height) {
     if (!normalize) {
@@ -344,11 +399,27 @@ async function main() {
       );
       process.exit(1);
     }
+    const designAR     = design.width / design.height;
+    const screenshotAR = screenshot.width / screenshot.height;
+    const arDiff       = Math.abs(designAR - screenshotAR) / Math.max(designAR, screenshotAR);
+    if (arDiff > 0.05) {
+      console.warn(
+        `\n[WARN] Aspect ratio mismatch (${(arDiff * 100).toFixed(1)}% difference):\n` +
+        `  Design AR:     ${designAR.toFixed(3)} (${design.width}x${design.height})\n` +
+        `  Screenshot AR: ${screenshotAR.toFixed(3)} (${screenshot.width}x${screenshot.height})\n` +
+        `  This will cause systematic layout shift in the diff — every element will\n` +
+        `  appear at a different vertical position. Fix before trusting the mismatch %.\n` +
+        `  Solutions:\n` +
+        `    1. Use --design-crop to trim design to match device aspect ratio\n` +
+        `    2. Use --screenshot-crop to trim screenshot to match design AR\n` +
+        `    3. Build the Flutter app to match the design's exact logical dimensions\n`
+      );
+    }
     const targetWidth  = Math.min(design.width, screenshot.width);
     const targetHeight = Math.min(design.height, screenshot.height);
     console.log(`Normalizing: resizing both images to ${targetWidth}x${targetHeight}`);
-    design     = await loadImage(designPath,     targetWidth, targetHeight, cropRect);
-    screenshot = await loadImage(screenshotPath, targetWidth, targetHeight, cropRect);
+    design     = await loadImage(designPath,     targetWidth, targetHeight, designCrop);
+    screenshot = await loadImage(screenshotPath, targetWidth, targetHeight, screenshotCrop);
   }
 
   const { width, height } = design;
@@ -358,7 +429,7 @@ async function main() {
   if (excludePhoneUI) {
     // Load cropped design pixels for detection
     let detPipeline = sharp(designPath).toColourspace("srgb");
-    if (cropRect) detPipeline = detPipeline.extract(cropRect);
+    if (designCrop) detPipeline = detPipeline.extract(designCrop);
     const { data: detData, info: detInfo } = await detPipeline
       .resize(width, height, { fit: "fill" })
       .ensureAlpha()
