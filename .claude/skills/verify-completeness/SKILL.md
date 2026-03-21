@@ -54,6 +54,20 @@ Check for any error output.
 ### 6. Image Constraints
 Grep for all `<img` or `Image` usage. Each must have explicit width/height or aspect-ratio.
 
+### 7. Broken Images
+If dev server URL provided, check that every image actually loaded:
+```js
+// Via Playwright MCP browser_evaluate, or inject into a screenshot run
+const broken = await page.evaluate(() =>
+  [...document.images]
+    .filter(img => !img.complete || img.naturalWidth === 0)
+    .map(img => ({ src: img.src, alt: img.alt }))
+);
+```
+Zero broken images required. A broken image renders as the element's background color — it will pass visual checks but fail pixel-diff and look wrong to users.
+
+**Common cause — wrong Unsplash CDN ID format:** Only numeric IDs work as CDN paths (`photo-1576045057995-568f588f82fb`). Alphanumeric slug IDs from `unsplash.com/photos/` URLs do not.
+
 ## Output — Final Checklist
 
 ```
