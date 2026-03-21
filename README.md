@@ -1,30 +1,27 @@
-# Pixel-Perfect Frontend Skills
+# Pixel-Perfect Flutter Skills
 
-Claude Code skills for automated design-to-code workflow. Analyze designs, scaffold projects, build components, and verify pixel-level accuracy — all through slash commands.
+Claude Code skills for automated design-to-Flutter workflow. Analyze designs, scaffold projects with Feature-Sliced Design architecture, build widgets, and verify pixel-level accuracy — all through slash commands.
 
 ## Requirements
 
 - [Claude Code](https://claude.com/claude-code) CLI
 - Node.js v18+
-- npm
+- Flutter SDK 3.x+
+- Dart SDK (bundled with Flutter)
+- Maestro MCP (for device screenshots and interaction testing)
+- Xcode (for iOS simulators) or Android Studio (for emulators)
 
 ## Installation
 
-Copy the `.claude/skills/` directory and `CLAUDE.md` into your project root:
+Copy the `.claude/skills/` directory and `CLAUDE.md` into your Flutter project root:
 
 ```bash
 # Clone this repo
 git clone https://github.com/afudx/pixel-perfect-frontend-skills.git
 
-# Copy skills into your project
-cp -r pixel-perfect-frontend-skills/.claude/skills/ your-project/.claude/skills/
-cp pixel-perfect-frontend-skills/CLAUDE.md your-project/CLAUDE.md
-```
-
-Or add as a subtree:
-
-```bash
-git subtree add --prefix=.claude/skills https://github.com/afudx/pixel-perfect-frontend-skills.git main --squash
+# Copy skills into your Flutter project
+cp -r pixel-perfect-frontend-skills/.claude/skills/ your-flutter-project/.claude/skills/
+cp pixel-perfect-frontend-skills/CLAUDE.md your-flutter-project/CLAUDE.md
 ```
 
 ## Skills
@@ -33,14 +30,14 @@ git subtree add --prefix=.claude/skills https://github.com/afudx/pixel-perfect-f
 
 | Skill | Command | Description |
 |-------|---------|-------------|
-| **preflight** | `/preflight [design-image]` | Install all dependencies and verify tools are ready |
-| **setup-project** | `/setup-project [vite\|next]` | Scaffold project with Tailwind, utils, and directory structure |
+| **preflight** | `/preflight [design-image]` | Install deps, verify Flutter/Maestro, list devices |
+| **setup-project** | `/setup-project [flutter]` | Scaffold project with FSD structure, ThemeData, Riverpod, GoRouter |
 
 ### Analysis
 
 | Skill | Command | Description |
 |-------|---------|-------------|
-| **analyze-design** | `/analyze-design [image-or-url]` | Extract colors, typography, spacing, layout, and component inventory |
+| **analyze-design** | `/analyze-design [image-or-url]` | Extract colors, typography, spacing, layout, widget tree, FSD layer assignment |
 | **extract-colors** | `/extract-colors <image> <x,y> ...` | Sample exact hex values at specific pixel coordinates |
 | **sample-palette** | `/sample-palette <image> [--top N]` | Extract dominant color palette from an image |
 
@@ -48,82 +45,89 @@ git subtree add --prefix=.claude/skills https://github.com/afudx/pixel-perfect-f
 
 | Skill | Command | Description |
 |-------|---------|-------------|
-| **pixel-diff** | `/pixel-diff <design> <screenshot> [--normalize]` | Pixel-level comparison with diff image output |
-| **fix-loop** | `/fix-loop <design> <url>` | Iterative fix cycle: edit, screenshot, diff, repeat |
+| **pixel-diff** | `/pixel-diff <design> <device-id>` | Pixel-level comparison with diff image output |
+| **fix-loop** | `/fix-loop <design> <device-id>` | Iterative fix cycle: edit Dart, hot reload, screenshot, diff |
 
 ### Verification
 
 | Skill | Command | Description |
 |-------|---------|-------------|
-| **verify-styles** | `/verify-styles <url> [selectors]` | Inspect computed CSS against design tokens |
-| **verify-interactive** | `/verify-interactive <url> [selectors]` | Test hover, focus, active, disabled states |
-| **verify-responsive** | `/verify-responsive <url> [widths]` | Screenshot at multiple viewports, check layout issues |
-| **verify-a11y** | `/verify-a11y <url>` | axe-core audit + manual accessibility checks |
-| **verify-completeness** | `/verify-completeness [url]` | Final audit: missing elements, TODOs, console errors |
+| **verify-styles** | `/verify-styles <device-id>` | Code grep + Maestro hierarchy bounds check |
+| **verify-interactive** | `/verify-interactive <device-id>` | Test tap, focus, disabled, long-press states |
+| **verify-responsive** | `/verify-responsive [devices]` | Screenshot on multiple device sizes |
+| **verify-a11y** | `/verify-a11y <device-id>` | Semantics audit (code + runtime) |
+| **verify-completeness** | `/verify-completeness [device-id]` | Final audit: build, TODOs, FSD structure |
+
+## Architecture: Feature-Sliced Design
+
+Projects are scaffolded with FSD architecture:
+
+```
+lib/
+├── app/            # MaterialApp, GoRouter, Riverpod providers
+├── pages/          # One slice per screen
+├── widgets/        # Reusable composed widgets (cross-page only)
+├── features/       # Business features (cross-page only)
+├── entities/       # Business objects (model + UI)
+└── shared/         # Design system, API, utils, theme
+    ├── ui/         # Atoms: buttons, inputs, cards
+    ├── theme/      # AppColors, AppTypography, AppSpacing, etc.
+    ├── api/        # HTTP client
+    ├── lib/        # Extensions, utilities
+    └── config/     # Constants, environment
+```
+
+**Import Rule:** Only import from layers strictly below. No same-layer cross-slice imports.
 
 ## Workflow
 
 ```
-/preflight design.png          # Install deps, verify tools
+/preflight design.png            # Install deps, verify Flutter/Maestro
     |
-/analyze-design design.png     # Extract all design tokens
+/analyze-design design.png       # Extract all design tokens
     |
-/setup-project vite            # Scaffold project
+/setup-project flutter           # Scaffold FSD project + theme
     |
-  Build components              # Write code section by section
+  Build widgets (FSD bottom-up)   # shared/ui → entities → pages
     |
-/pixel-diff design.png <url>   # Check accuracy (< 2% = pass)
+/pixel-diff design.png <device>  # Check accuracy (< 2% = pass)
     |
-/fix-loop design.png <url>     # Auto-fix deviations if > 2%
+/fix-loop design.png <device>    # Auto-fix deviations if > 2%
     |
-/verify-styles <url>           # Inspect computed CSS
-/verify-interactive <url>      # Test hover/focus states
-/verify-responsive <url>       # Test 375/768/1024/1440px
-/verify-a11y <url>             # Accessibility audit
-/verify-completeness <url>     # Final checklist
+/verify-styles <device>          # Check code uses theme tokens
+/verify-interactive <device>     # Test tap/focus states
+/verify-responsive               # Test iPhone SE/15/iPad
+/verify-a11y <device>            # Semantics audit
+/verify-completeness <device>    # Final checklist
 ```
 
 ## Shared Scripts
 
-All skills use shared Playwright-based CLI scripts in `.claude/skills/_shared/scripts/`:
+All skills use shared Node.js scripts in `.claude/skills/_shared/scripts/`:
 
 | Script | Purpose |
 |--------|---------|
-| `screenshot.mjs` | Capture pages with optional text/style/measurement extraction |
+| `flutter-screenshot.mjs` | Capture device screen via Maestro CLI |
 | `compare.mjs` | Pixel-level image comparison via pixelmatch |
 | `extract-color.mjs` | Sample hex colors at specific coordinates via sharp |
 | `sample-palette.mjs` | Extract dominant colors from an image |
-| `inspect-styles.mjs` | Extract computed CSS properties from page elements |
-| `interactive-test.mjs` | Test hover, focus, cursor, and transition states |
-| `responsive-test.mjs` | Multi-viewport screenshot with layout issue detection |
-| `a11y-audit.mjs` | axe-core injection + manual accessibility checks |
-
-Scripts can be used standalone:
-
-```bash
-# Screenshot with style extraction
-node .claude/skills/_shared/scripts/screenshot.mjs https://example.com \
-  --output .claude/tmp/screenshot.png --full-page --extract-styles
-
-# Compare two images
-node .claude/skills/_shared/scripts/compare.mjs design.png screenshot.png
-
-# Sample colors
-node .claude/skills/_shared/scripts/extract-color.mjs design.png 100,200 300,400
-
-# Inspect computed styles
-node .claude/skills/_shared/scripts/inspect-styles.mjs http://localhost:5173 h1 button img
-```
+| `flutter-inspect-widgets.mjs` | Parse Maestro view hierarchy → JSON |
+| `flutter-interactive-test.mjs` | Test tap, focus, disabled states via Maestro flows |
+| `flutter-responsive-test.mjs` | Multi-device screenshot with overflow detection |
+| `flutter-a11y-audit.mjs` | Code-level + runtime accessibility checks |
 
 ## Dependencies
 
-All installed automatically by `/preflight`:
+Installed automatically by `/preflight`:
 
 - **sharp** — image manipulation and color sampling
 - **pixelmatch** — pixel-by-pixel image comparison
 - **pngjs** — PNG encoding/decoding
-- **axe-core** — accessibility audit engine
-- **playwright** — headless browser automation (Chromium)
+
+External requirements (install separately):
+- **Flutter SDK** — `flutter` and `dart` CLI tools
+- **Maestro** — `curl -fsSL https://get.maestro.mobile.dev | bash`
+- **Xcode** — for iOS simulators (macOS only)
 
 ## Temp Files
 
