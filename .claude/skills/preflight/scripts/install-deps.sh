@@ -13,6 +13,29 @@ if [ ! -f "$SHARED_DIR/package.json" ]; then
   echo '{"name":"pixel-perfect-flutter-skills-deps","private":true}' > "$SHARED_DIR/package.json"
 fi
 
+echo "=== Verifying Node.js ==="
+
+if command -v node &>/dev/null; then
+  NODE_VERSION=$(node --version)
+  NODE_MAJOR=$(echo "$NODE_VERSION" | sed 's/v\([0-9]*\).*/\1/')
+  if [ "$NODE_MAJOR" -ge 18 ]; then
+    echo "[OK] Node.js $NODE_VERSION"
+  else
+    echo "[WARN] Node.js $NODE_VERSION is below recommended v18. Upgrade for best compatibility."
+  fi
+else
+  echo "[FAIL] Node.js not found. Install from https://nodejs.org"
+  exit 1
+fi
+
+if command -v rtk &>/dev/null; then
+  echo "[OK] RTK (Rust Token Killer) available"
+else
+  echo "[WARN] RTK not found. Install for token-optimized output: https://github.com/strowk/rtk"
+  echo "       Skills will fall back to standard commands."
+fi
+
+echo ""
 echo "[1/2] Installing image processing tools (sharp, pixelmatch, pngjs)..."
 if command -v rtk &>/dev/null; then
   rtk npm install --prefix "$SHARED_DIR" --save sharp pixelmatch pngjs
@@ -46,6 +69,21 @@ if command -v dart &>/dev/null; then
 else
   echo "[FAIL] Dart SDK not found (should be bundled with Flutter)"
   exit 1
+fi
+
+echo ""
+echo "=== Verifying Flutter environment (flutter doctor) ==="
+bash "$(dirname "$0")/../../_shared/scripts/flutter-cli.sh" doctor 2>/dev/null || flutter doctor 2>&1 | grep -E "^\[|Doctor summary" | head -10
+
+echo ""
+echo "=== Verifying CocoaPods (iOS builds) ==="
+
+if command -v pod &>/dev/null; then
+  POD_VERSION=$(pod --version 2>&1)
+  echo "[OK] CocoaPods $POD_VERSION"
+else
+  echo "[WARN] CocoaPods not found. Required for iOS builds."
+  echo "       Install: sudo gem install cocoapods"
 fi
 
 echo ""
