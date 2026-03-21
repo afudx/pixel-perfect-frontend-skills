@@ -1,142 +1,127 @@
 ---
 name: fix-loop
-description: Iterative fix-and-reverify cycle — edit code, re-screenshot, re-diff until pixel mismatch drops below 2%. Use after pixel-diff shows deviations.
+description: Iterative fix-and-reverify cycle — edit Dart code, hot reload, re-screenshot via Maestro, re-diff until pixel mismatch drops below 2%. Use after pixel-diff shows deviations.
 user-invocable: true
-allowed-tools: Bash, Read, Edit, Write, Grep, Glob
-argument-hint: <design-image> <dev-server-url>
+allowed-tools: Bash, Read, Edit, Write, Grep, Glob, mcp__maestro__take_screenshot, mcp__maestro__inspect_view_hierarchy
+argument-hint: <design-image> <device-id>
 ---
 
-Run the fix-and-reverify loop.
+# Fix Loop — Iterative Pixel-Perfect Correction for Flutter
 
-Design: `$0`
-Dev server: `$1`
+Maximum 3 iterations. Edit Dart → hot reload → Maestro screenshot → pixel-diff → repeat.
 
-## Step 0 — Classify Mismatch Before Fixing
+## Arguments
 
-Before making any code changes, classify what's causing the mismatch. This prevents wasted iterations.
+- `<design-image>`: Path to the reference design image
+- `<device-id>`: Maestro device ID (from preflight)
 
-### 0a — Check for broken images first
+## Step 0: Classify Mismatch
 
-Broken images show as solid-color blocks in the diff (the fallback `imageBg` or `background-color` fills the space). Detect them before running the pixel comparison:
+Before fixing, classify what's causing the mismatch. Read the diff image (`.claude/tmp/diff.png`) with Vision.
 
-```js
-// Run via Playwright MCP or inject into screenshot script
-const broken = await page.evaluate(() =>
-  [...document.images]
-    .filter(img => !img.complete || img.naturalWidth === 0)
-    .map(img => ({ src: img.src, alt: img.alt }))
-);
-console.log('Broken images:', broken);
-```
+### Check for broken images first
 
-If broken images are found:
-1. Verify the URL loads directly: navigate to it in the browser and take a screenshot
-2. **Unsplash CDN IDs** — use only the numeric format (`photo-1576045057995-568f588f82fb`). Alphanumeric slug IDs from `unsplash.com/photos/{slug}` URLs (e.g. `BkuUOofPGkE`) do **not** map to CDN paths.
-3. Fix the URL, then re-screenshot before running the diff
-
-### 0b — Pixel mismatch classification
-
-Run the comparison with region breakdown:
+Search for failed network images in the code:
 ```bash
-node ${CLAUDE_SKILL_DIR}/../_shared/scripts/compare.mjs $0 .claude/tmp/fix-loop-screenshot.png --normalize
+rtk grep -rn "Image.network" lib/ --include="*.dart"
 ```
 
-Then read the diff image and cross-reference the 6-quadrant breakdown to answer:
+If `Image.network` widgets reference URLs that may be broken, verify by inspecting the device — broken images show Flutter's error icon (gray icon with a broken image symbol).
 
-**Classification checklist:**
+Use `mcp__maestro__inspect_view_hierarchy` to check for error widgets in the tree.
 
-| Type | How to identify | Action |
-|------|----------------|--------|
-| **Device chrome** | Uniform mismatch around all 4 edges | Use `--auto-crop-chrome` or `--exclude-regions`, not code changes |
-| **Missing asset** | Large solid-color block in diff (where design has a photo) | Note as known limitation, don't fix in code |
-| **Layout shift** | Entire section offset by N pixels | Fix flex/grid alignment or container padding |
-| **Wrong color** | Diffuse red throughout a region | Extract exact hex from design, update token |
-| **Wrong spacing** | Thin red lines between elements | Fix padding/margin/gap values |
-| **Wrong typography** | Text region mismatched | Fix font-size, weight, line-height |
-| **Missing element** | Solid red block matching a known element | Add the missing component |
-| **Wrong radius** | Curved-edge mismatch | Fix border-radius value |
-| **Dynamic content** | Status bar, timestamps, live counters | Mask with `--exclude-regions` |
+### Classify each mismatched region
 
-**Report classification before proceeding:**
-```
-Mismatch breakdown:
-  Top section (0–33%):    X% — [layout shift / wrong color / device chrome / ...]
-  Mid section (33–66%):   X% — [missing element / wrong spacing / ...]
-  Bot section (66–100%):  X% — [...]
+For each region with mismatch in the 6-quadrant breakdown, categorize:
 
-Fixable by code:       X% estimated
-Not fixable (assets/chrome): X% estimated
-Proceeding to fix:     <list of actionable items>
-```
+| Category | Description | Fixable? |
+|----------|-------------|----------|
+| **Device chrome** | Status bar, home indicator, notch | No — use `--exclude-phone-ui` |
+| **Missing assets** | Placeholder vs real photo | No — requires correct image URL |
+| **Layout shift** | Wrong padding, margin, alignment | Yes |
+| **Color mismatch** | Wrong color in theme or widget | Yes |
+| **Typography** | Wrong font, size, weight, spacing | Yes |
+| **Border/radius** | Wrong border-radius or border | Yes |
+| **Shadow** | Missing or wrong box-shadow | Yes |
+| **Missing element** | Widget not implemented | Yes |
 
-Only proceed to fix actionable items. Do not attempt to fix device chrome or missing photo assets in code.
+Calculate:
+- **Non-fixable %** = device chrome + missing assets → subtract from total
+- **Fixable %** = total mismatch - non-fixable
+- If fixable < 2%, already within tolerance → PASS
 
----
+## The Fix Loop (max 3 iterations)
 
-## The Loop (max 3 iterations)
+### Step 1: Identify deviations
 
-### Step 1 — Identify Deviations
-- Read the diff image from last pixel-diff run
-- Use Vision to find largest mismatch areas (red regions)
-- Use the shared style inspector to compare computed styles:
+Read the diff image with Vision. For each red region:
+1. Identify which widget is mismatched
+2. Read the corresponding Dart file
+3. Compare against design analysis tokens
+
+Use `mcp__maestro__inspect_view_hierarchy` to get element bounds and verify positioning.
+
+### Step 2: Fix the code
+
+Edit the Dart files to correct deviations. Common fixes:
+
+- **Wrong color**: Change hardcoded color to `AppColors.<token>` or fix the token value
+- **Wrong padding**: Adjust `EdgeInsets` values to match design spacing
+- **Wrong font**: Fix `GoogleFonts.<font>()` call, fontSize, fontWeight, height
+- **Wrong radius**: Fix `BorderRadius.circular(<n>)` value
+- **Wrong shadow**: Fix `BoxShadow` parameters (color, blur, offset, spread)
+- **Missing widget**: Add the missing element from the design
+- **Wrong alignment**: Fix `MainAxisAlignment`, `CrossAxisAlignment`, or `Alignment`
+
+### Step 3: Hot reload
+
+Flutter hot reloads automatically on file save when `flutter run` is active. Wait 2-3 seconds for the rebuild to complete.
+
+If hot reload fails (structural change), hot restart:
 ```bash
-node ${CLAUDE_SKILL_DIR}/../_shared/scripts/inspect-styles.mjs $1
+# Press 'R' in the flutter run terminal, or:
+# The running app will show a red error screen — restart is needed
 ```
-- Compare against design tokens
 
-### Step 2 — Fix
-Use Edit on each deviation:
-- Wrong color → exact hex from design
-- Wrong spacing → correct padding/margin/gap
-- Wrong typography → correct font-size/weight/line-height
-- Wrong radius → correct border-radius
-- Missing element → add it
-- Layout shift → fix flex/grid properties
+### Step 4: Re-screenshot
 
-### Step 3 — Re-screenshot
-Take a new screenshot via Playwright CLI:
+```
+mcp__maestro__take_screenshot(device_id: "<device-id>")
+```
+
+Save to `.claude/tmp/screenshot.png`.
+
+### Step 5: Re-diff
+
+Run the same comparison command from `/pixel-diff`, with the **same flags** used in the initial comparison:
+
 ```bash
-node ${CLAUDE_SKILL_DIR}/../_shared/scripts/screenshot.mjs $1 --output .claude/tmp/fix-loop-screenshot.png --full-page --wait 3000
+node .claude/skills/_shared/scripts/compare.mjs <design-image> .claude/tmp/screenshot.png --normalize --exclude-phone-ui
 ```
 
-### Step 4 — Re-diff
+### Step 6: Evaluate
 
-If the design is a **phone mockup** (detected in `/preflight`), always add `--exclude-phone-ui`:
-```bash
-node ${CLAUDE_SKILL_DIR}/../_shared/scripts/compare.mjs $0 .claude/tmp/fix-loop-screenshot.png --normalize --exclude-phone-ui
-```
-
-For bare app screenshots (no device frame):
-```bash
-node ${CLAUDE_SKILL_DIR}/../_shared/scripts/compare.mjs $0 .claude/tmp/fix-loop-screenshot.png --normalize
-```
-
-> The same masking flags used in the final `/pixel-diff` **must** be used in every fix-loop iteration. Mixing masked and unmasked runs makes mismatch % incomparable across iterations.
-
-### Step 5 — Evaluate
-- < 2%: DONE
-- Improved but > 2%: Continue loop
-- Not improving after 3 iterations: STOP and reassess
+- If < 2%: **PASS** — exit loop
+- If improved but > 2%: Continue to next iteration
+- If not improving: Reassess (see below)
 
 ## Reassessment Protocol
 
-1. DOM hierarchy may be wrong — rebuild the problem section from scratch
-2. Use region-by-region comparison to isolate the problem
-3. Font rendering variance ±1px is acceptable (OS-level)
-4. Trust sharp/Figma measurements over Vision estimates
-5. If remaining mismatch is entirely due to device chrome or missing photos — it is not fixable by code. Document it and consider the implementation complete.
+If mismatch is not decreasing after 3 iterations:
 
-## Output
+1. **Re-read the diff image** — are the remaining mismatches fixable?
+2. **Check if the mismatch is from device chrome**: Use `--exclude-phone-ui` flag
+3. **Check if the mismatch is from photos**: Design shows real photos but implementation uses placeholders. This is expected — classify as non-fixable.
+4. **Rebuild the section**: If a section is consistently mismatched, consider rewriting it from scratch using the design analysis.
 
-Per iteration:
+## Output per iteration
+
 ```
-Classification:
-  Device chrome:  X%
-  Missing assets: X%
-  Fixable in code: X%
-
-Iteration N:
-  Fixed: <list>
-  New mismatch: X%
-  Status: CONTINUE/PASS/REASSESS
+ITERATION N
+===========
+[CLASSIFY] Fixable: X.X% | Non-fixable: X.X% (chrome/assets)
+[FIX]      Changed: file1.dart (color), file2.dart (padding)
+[RELOAD]   Hot reload successful
+[DIFF]     Mismatch: X.XX% (was X.XX%)
+[STATUS]   PASS / CONTINUE / REASSESS
 ```
