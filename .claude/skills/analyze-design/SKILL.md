@@ -12,25 +12,60 @@ If the argument is a URL instead of a local file path, take a screenshot using M
 
 ## Pre-Analysis: Device Frame Detection
 
-Before extracting design tokens, determine if the image is a phone mockup or a bare screenshot.
+Before extracting design tokens, determine the exact nature of the image frame. There are three cases:
+
+### Step 1: Corner pixel sampling
 
 Sample the 4 corners to detect device chrome:
 ```bash
 node ${CLAUDE_SKILL_DIR}/../_shared/scripts/extract-color.mjs <design.png> 5,5 <w-5>,5 5,<h-5> <w-5>,<h-5>
 ```
 
-If corners are similar dark/gray colors → **phone mockup**. The actual app content is inset.
+- **All 4 corners identical neutral color** (gray/black/white) → likely **phone mockup**
+- **Corners differ** → likely **bare screenshot** or app content extends to edges
 
-To find the content boundary, sample the edge centers:
+To find the content boundary for mockups, sample edge centers:
 ```bash
 node ${CLAUDE_SKILL_DIR}/../_shared/scripts/extract-color.mjs <design.png> --region 0,0,<w>,30 --region 0,<h-30>,<w>,30
 ```
 
-**If phone mockup detected:**
-- Report the content inset (chrome thickness on each edge)
-- Use `--region` mode to sample colors only from the content area, not the chrome
-- Note the actual content dimensions for viewport configuration in `/setup-project`
-- When running `/pixel-diff`, use `--exclude-phone-ui` or `--exclude-regions` for the chrome area
+> **Note:** Colored or branded phone frames (red, blue, etc.) won't be caught by neutral-color corner sampling. Use Vision to visually confirm whether a device frame is present around the app content regardless of its color.
+
+### Step 2: Visual OS chrome inspection (Vision)
+
+Regardless of corner sampling result, use Vision to inspect the **top ~6% of the image** and the **bottom ~4%** for OS indicators:
+
+**Status bar indicators (top area):**
+- Clock/time digits (e.g., "9:41", "12:30")
+- Signal bars (cellular or WiFi strength indicator)
+- Battery icon or percentage
+- Carrier name text
+- Notification icons
+- Mobile data indicator (4G, 5G, LTE)
+
+**Bottom OS chrome:**
+- Home indicator (thin pill/bar for swipe gesture)
+- Virtual navigation bar (Android: back/home/recents buttons)
+
+**Classify each finding as one of:**
+- **OS chrome** → must be excluded from pixel-diff and must NOT be included as app content to replicate
+- **App custom status bar** → intentional app design element that should be replicated in Flutter
+- **None** → no OS elements present
+
+### Step 3: Determine action
+
+| Finding | Frame type | pixel-diff flag | App scope |
+|---------|-----------|-----------------|-----------|
+| Phone frame + OS status bar + home indicator | Full phone mockup | `--exclude-phone-ui --has-notch` | Content area only |
+| No frame + OS status bar visible | Bare screenshot with OS chrome | `--exclude-phone-ui` | Below status bar |
+| No frame + custom app status bar | Bare screenshot, app content | `none` | Full image |
+| No frame + no status bar | Clean app screenshot | `none` | Full image |
+
+**If OS chrome detected (any case):**
+- Report exact pixel bounds of each OS element
+- Use `--region` mode to sample colors only from the content area
+- Note the content start Y coordinate (below status bar) for viewport configuration
+- When running `/pixel-diff`, pass the appropriate flags above
 
 ## Analysis Checklist
 
@@ -165,10 +200,13 @@ Write the complete analysis as a structured document with these sections:
 
 ```
 ## Device Frame
-- Format: <bare screenshot | phone mockup>
+- Format: <bare screenshot | phone mockup | bare screenshot with OS chrome>
+- Phone frame: <none | neutral color | colored (describe)>
+- OS chrome detected: <none | status bar (clock/signal/battery at y=N..M) | home indicator (at y=N..M) | both>
+- App custom status bar: <yes (replicate in Flutter) | no>
 - Content area: <width>x<height> (inset from edges by top:<n>px right:<n>px bottom:<n>px left:<n>px)
 - Viewport to use: <width>x<height>
-- pixel-diff flags: <--exclude-phone-ui | --exclude-regions x,y,w,h | none>
+- pixel-diff flags: <--exclude-phone-ui [--has-notch] | --exclude-regions x,y,w,h | none>
 
 ## Colors
 <token name>: #hex  ← semantic names for every distinct color
