@@ -15,6 +15,27 @@ Dev server: `$1`
 
 Before making any code changes, classify what's causing the mismatch. This prevents wasted iterations.
 
+### 0a — Check for broken images first
+
+Broken images show as solid-color blocks in the diff (the fallback `imageBg` or `background-color` fills the space). Detect them before running the pixel comparison:
+
+```js
+// Run via Playwright MCP or inject into screenshot script
+const broken = await page.evaluate(() =>
+  [...document.images]
+    .filter(img => !img.complete || img.naturalWidth === 0)
+    .map(img => ({ src: img.src, alt: img.alt }))
+);
+console.log('Broken images:', broken);
+```
+
+If broken images are found:
+1. Verify the URL loads directly: navigate to it in the browser and take a screenshot
+2. **Unsplash CDN IDs** — use only the numeric format (`photo-1576045057995-568f588f82fb`). Alphanumeric slug IDs from `unsplash.com/photos/{slug}` URLs (e.g. `BkuUOofPGkE`) do **not** map to CDN paths.
+3. Fix the URL, then re-screenshot before running the diff
+
+### 0b — Pixel mismatch classification
+
 Run the comparison with region breakdown:
 ```bash
 node ${CLAUDE_SKILL_DIR}/../_shared/scripts/compare.mjs $0 .claude/tmp/fix-loop-screenshot.png --normalize
