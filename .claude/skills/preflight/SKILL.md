@@ -1,118 +1,97 @@
 ---
 name: preflight
-description: Run pre-flight checklist before starting pixel-perfect frontend work. Use when beginning a new design-to-code task, or when the user provides a design image and wants to start building.
+description: Run pre-flight checklist before starting pixel-perfect Flutter work. Use when beginning a new design-to-code task, or when the user provides a design image and wants to start building.
 user-invocable: true
-allowed-tools: Read, Bash, Glob
-argument-hint: [design-image-path]
+allowed-tools: Read, Bash, Glob, mcp__maestro__list_devices, mcp__maestro__start_device, mcp__maestro__take_screenshot
+arguments:
+  - name: design-image
+    description: Path to the design image file (optional)
+    required: false
 ---
 
-Run the pre-flight checklist for the design image at `$ARGUMENTS`.
+# Pre-flight Checklist for Pixel-Perfect Flutter
 
-## Steps
+Run this checklist BEFORE starting any design-to-code Flutter work.
 
-### 1. Install ALL dependencies (MUST run first)
+## Checklist
+
+### 1. Install dependencies
+
+Run the install script:
 
 ```bash
-bash ${CLAUDE_SKILL_DIR}/scripts/install-deps.sh
+bash .claude/skills/preflight/scripts/install-deps.sh
 ```
 
-This installs: sharp, pixelmatch, pngjs, axe-core, playwright, AND chromium browser.
-All subsequent skills depend on these — no mid-session installs needed.
+This installs image processing tools (sharp, pixelmatch, pngjs) to `.claude/skills/_shared/node_modules` and verifies the Flutter toolchain (Flutter SDK, Dart SDK, Maestro, devices).
 
 ### 2. Verify design image
 
-If a design image path was provided:
-- Verify the file exists using `ls`
-- Read dimensions using `sips -g pixelWidth -g pixelHeight <path>` (macOS) or `node -e "const s=require('sharp'); s('<path>').metadata().then(m=>console.log(m.width+'x'+m.height))"`
-- Record width × height
+If a design image was provided:
 
-If a URL was provided instead of a local image:
-- Use the shared screenshot utility to capture it:
+1. Read the image to confirm it loads
+2. Report dimensions (width × height)
+3. Detect if it's a **device mockup** or **bare screenshot**:
+
+**Device mockup detection** — Sample the four corner pixels:
 ```bash
-node ${CLAUDE_SKILL_DIR}/../_shared/scripts/screenshot.mjs $ARGUMENTS \
-  --output .claude/tmp/design-capture.png --full-page --extract-text --extract-styles --wait 5000
+node .claude/skills/_shared/scripts/extract-color.mjs <design-image> 0,0 <W-1>,0 0,<H-1> <W-1>,<H-1>
 ```
 
-### 3. Analyze reference image format
+- If all 4 corners are the same neutral color (gray/black/white) → **device mockup**
+  - Sample edge centers to estimate content inset (chrome thickness)
+  - Set viewport to content area dimensions
+  - Use `--exclude-phone-ui` on ALL pixel-diff and fix-loop runs
+- If corners differ → **bare screenshot**
+  - Viewport = design dimensions
+  - No masking needed
 
-After reading dimensions, determine the image format to guide the entire build:
+**Scale detection** — Check if dimensions suggest 2× or 3× rendering:
+- Width > 800 and common device ratio → likely 2× or 3× mockup
+- Divide by scale factor for logical viewport dimensions
 
-**Phone mockup detection:**
-- Sample the 4 corner pixels (5px in from each corner):
-  ```bash
-  node ${CLAUDE_SKILL_DIR}/../_shared/scripts/extract-color.mjs <design.png> 5,5 <w-5>,5 5,<h-5> <w-5>,<h-5>
-  ```
-- If all 4 corners are similar dark/gray colors (within ±30 RGB of each other), the image is a **phone mockup** with a device frame.
-- Sample the edge centers to estimate chrome thickness:
-  ```bash
-  node ${CLAUDE_SKILL_DIR}/../_shared/scripts/extract-color.mjs <design.png> <w/2>,5 <w/2>,<h-5> 5,<h/2> <w-5>,<h/2>
-  ```
-- Scan inward from each edge using `--region` mode to find where the content starts:
-  ```bash
-  node ${CLAUDE_SKILL_DIR}/../_shared/scripts/extract-color.mjs <design.png> --region 0,0,<w>,20 --region 0,<h-20>,<w>,20
-  ```
+### 3. Verify Maestro MCP availability
 
-**Scale detection:**
-- Compare design width to standard viewport widths:
-  - 375px or 390px → iPhone standard mobile
-  - 414px → iPhone Plus/Max
-  - 428px → iPhone 14 Pro Max
-  - 768px → iPad portrait
-  - 1280–1440px → Desktop
-  - > 500px portrait with uniform chrome border → likely a 2× or 3× mockup (e.g., 584px design = ~292px content at 2×)
+Use Maestro MCP tools to verify device access:
 
-**Report format:**
+1. Call `mcp__maestro__list_devices` to list available simulators/emulators
+2. Report device names, platforms, and IDs
+3. Recommend the best device for the design dimensions:
+   - iPhone SE (375x667) for small phone designs
+   - iPhone 15 (393x852) for standard phone designs
+   - iPad (820x1180) for tablet designs
+
+### 4. Start a test device
+
+1. Call `mcp__maestro__start_device` with `platform: "ios"` (default) or `platform: "android"`
+2. Wait for device to boot
+3. Call `mcp__maestro__take_screenshot` to verify screenshot capability
+4. Report: device ID, platform, screen dimensions
+
+### 5. Check working directory
+
+- If `pubspec.yaml` exists: report project name, Flutter SDK version constraint, existing dependencies
+- If not: note that `/setup-project` will scaffold a new Flutter project
+- Check for existing `lib/` structure (FSD layers present?)
+- Check for existing `.claude/tmp/` directory
+
+### 6. Report summary
+
+Output a checklist:
+
 ```
-[INFO] Design image: <path> (<width>x<height>)
-[INFO] Format: <bare screenshot | phone mockup | device mockup>
-[INFO] Content area: ~<content-width>x<content-height> (starts at <x>,<y>)
-[INFO] Scale: <1x | 2x | 3x> — screenshot viewport should be <viewport-width>x<viewport-height>
-[INFO] Chrome border: ~<thickness>px on each edge
-```
-
-### 4. Verify Node.js & npm
-
-Run `node -v` and `npm -v`. Node must be v18+.
-
-### 5. Verify Playwright browser
-
-```bash
-node -e "const { chromium } = require('playwright'); console.log('Chromium:', chromium.executablePath())"
-```
-
-If this fails, run `npx playwright install chromium`.
-
-### 6. Test browser screenshot capability
-
-```bash
-node ${CLAUDE_SKILL_DIR}/../_shared/scripts/screenshot.mjs https://example.com --output .claude/tmp/preflight-test.png --wait 2000
-```
-
-Verify the screenshot file was created and is non-empty.
-
-### 7. Working directory
-
-Check for existing project files (package.json, src/, etc.) and report state.
-
-### 8. Figma MCP (optional)
-
-Only if the user mentioned a Figma file. Otherwise skip.
-
-## Output
-
-Print a checklist:
-```
-[PASS/FAIL] Dependencies installed (sharp, pixelmatch, pngjs, axe-core, playwright, chromium)
-[PASS/FAIL] Design image: <path> (<width>x<height>)
-[INFO] Format: <bare screenshot | phone mockup>
-[INFO] Content area: ~<w>x<h> starting at <x>,<y>
-[INFO] Scale: <1x | 2x> — use viewport <w>x<h> for screenshots
-[PASS/FAIL] Node.js: <version>
-[PASS/FAIL] npm: <version>
-[PASS/FAIL] Playwright browser: <chromium path>
-[PASS/FAIL] Test screenshot: <path>
-[INFO] Working directory: <state>
-[SKIP/PASS/FAIL] Figma MCP
+PRE-FLIGHT CHECKLIST
+====================
+[PASS/FAIL] Node.js dependencies (sharp, pixelmatch, pngjs)
+[PASS/FAIL] Flutter SDK (version)
+[PASS/FAIL] Dart SDK (version)
+[PASS/WARN] Maestro CLI (optional if MCP available)
+[PASS/FAIL] Maestro MCP (list_devices works)
+[PASS/FAIL] Device available (name, platform, ID)
+[PASS/FAIL] Screenshot test
+[INFO]      Design: WxH (bare/mockup @Nx scale)
+[INFO]      Viewport: WxH (logical)
+[INFO]      Project: (new / existing name)
 ```
 
-Do not proceed with build work. This skill only verifies readiness.
+All PASS required before proceeding. WARN items are acceptable.
